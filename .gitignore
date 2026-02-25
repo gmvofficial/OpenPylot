@@ -1,0 +1,24 @@
+# Build
+/target/
+debug/
+release/
+
+# Environment
+.env
+
+# Data
+*.json
+!config/**/*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+docs/
