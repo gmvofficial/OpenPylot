@@ -4,15 +4,16 @@ A terminal-first personal AI assistant built in Rust, inspired by OpenClaw. GMV 
 
 ## Features (MVP)
 
-| Category | Tools |
-|---|---|
-| **Notes** | Create, list, search, delete notes (stored locally as JSON) |
+| Category            | Tools                                                                 |
+| ------------------- | --------------------------------------------------------------------- |
+| **Notes**           | Create, list, search, delete notes (stored locally as JSON)           |
 | **Google Calendar** | Create events, list upcoming events, create meetings with Google Meet |
-| **Telegram** | Send messages, get bot updates |
-| **WhatsApp** | Send messages via Twilio API |
-| **Reminders** | Set, list, complete reminders (stored locally) |
+| **Telegram**        | Send messages, get bot updates                                        |
+| **WhatsApp**        | Send messages via Twilio API                                          |
+| **Reminders**       | Set, list, complete reminders (stored locally)                        |
 
 **Architecture highlights:**
+
 - **Rust-native** — zero GC, async via Tokio, fast tool execution
 - **Multi-model** — supports OpenAI and Anthropic (Claude) LLMs
 - **Tool-calling** — real function calling via LLM tool-use APIs (not string parsing)
@@ -72,12 +73,54 @@ cargo run --release
 # Or after building:
 ./target/release/gmv-agent
 
+# Telegram Bot Mode (NEW! 🤖)
+cargo run --release -- telegram-bot
+# Now chat with the AI through Telegram instead of terminal!
+
 # One-shot message
 cargo run --release -- chat "Take a note: buy groceries"
 
 # List configured tools
 cargo run --release -- tools
 ```
+
+## Telegram Bot Mode 🆕
+
+**Chat with your AI assistant directly on Telegram!**
+
+Instead of using the terminal, you can now message your Telegram bot and get AI responses on your phone, tablet, or any device with Telegram.
+
+### Quick Setup:
+
+1. Your bot is already configured in `.env` ✅
+2. Start the bot:
+   ```bash
+   cargo run --release -- telegram-bot
+   ```
+3. Open Telegram and message your bot!
+
+### Available Commands:
+
+- `/start` - Welcome message
+- `/help` - Show available commands
+- `/tools` - List AI tools
+- `/clear` - Clear conversation history
+
+### Example Usage:
+
+```
+You: Take a note about the meeting tomorrow
+Bot: ✅ Note created successfully!
+
+You: Set a reminder for 3pm today
+Bot: ✅ Reminder set for 3:00 PM!
+
+You: What notes do I have?
+Bot: You have 1 note:
+     • About the meeting tomorrow
+```
+
+📖 **Full guide**: See [TELEGRAM_BOT.md](TELEGRAM_BOT.md) for detailed instructions.
 
 ## Google Calendar Setup
 
@@ -149,12 +192,12 @@ GMV Agent: Telegram message sent to chat 123456.
 
 ## Terminal Commands
 
-| Command | Description |
-|---|---|
+| Command  | Description                |
+| -------- | -------------------------- |
 | `/clear` | Clear conversation history |
-| `/tools` | List loaded tools |
-| `/help` | Show help |
-| `/quit` | Exit the agent |
+| `/tools` | List loaded tools          |
+| `/help`  | Show help                  |
+| `/quit`  | Exit the agent             |
 
 ## Project Structure
 
@@ -229,6 +272,7 @@ impl Tool for MyTool {
 ```
 
 3. Register it in `src/main.rs`:
+
 ```rust
 tools.register(Box::new(my_tool::MyTool::new()));
 ```
@@ -237,21 +281,21 @@ tools.register(Box::new(my_tool::MyTool::new()));
 
 **Environment variables** (in `.env`):
 
-| Variable | Required | Description |
-|---|---|---|
-| `OPENAI_API_KEY` | Yes* | OpenAI API key |
-| `ANTHROPIC_API_KEY` | Yes* | Anthropic API key |
-| `LLM_PROVIDER` | No | `openai` (default) or `anthropic` |
-| `LLM_MODEL` | No | Model name (default: gpt-4o / claude-sonnet-4-20250514) |
-| `GOOGLE_CLIENT_ID` | No | Google OAuth2 client ID |
-| `GOOGLE_CLIENT_SECRET` | No | Google OAuth2 client secret |
-| `TELEGRAM_BOT_TOKEN` | No | Telegram bot token |
-| `TELEGRAM_DEFAULT_CHAT_ID` | No | Default Telegram chat ID |
-| `TWILIO_ACCOUNT_SID` | No | Twilio account SID |
-| `TWILIO_AUTH_TOKEN` | No | Twilio auth token |
-| `TWILIO_WHATSAPP_FROM` | No | Twilio WhatsApp sender number |
-| `AGENT_NAME` | No | Agent display name (default: GMV Agent) |
-| `AGENT_PERSONA` | No | Agent personality description |
+| Variable                   | Required | Description                                             |
+| -------------------------- | -------- | ------------------------------------------------------- |
+| `OPENAI_API_KEY`           | Yes\*    | OpenAI API key                                          |
+| `ANTHROPIC_API_KEY`        | Yes\*    | Anthropic API key                                       |
+| `LLM_PROVIDER`             | No       | `openai` (default) or `anthropic`                       |
+| `LLM_MODEL`                | No       | Model name (default: gpt-4o / claude-sonnet-4-20250514) |
+| `GOOGLE_CLIENT_ID`         | No       | Google OAuth2 client ID                                 |
+| `GOOGLE_CLIENT_SECRET`     | No       | Google OAuth2 client secret                             |
+| `TELEGRAM_BOT_TOKEN`       | No       | Telegram bot token                                      |
+| `TELEGRAM_DEFAULT_CHAT_ID` | No       | Default Telegram chat ID                                |
+| `TWILIO_ACCOUNT_SID`       | No       | Twilio account SID                                      |
+| `TWILIO_AUTH_TOKEN`        | No       | Twilio auth token                                       |
+| `TWILIO_WHATSAPP_FROM`     | No       | Twilio WhatsApp sender number                           |
+| `AGENT_NAME`               | No       | Agent display name (default: GMV Agent)                 |
+| `AGENT_PERSONA`            | No       | Agent personality description                           |
 
 \* At least one LLM provider key is required.
 

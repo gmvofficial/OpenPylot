@@ -14,6 +14,7 @@ pub struct Agent {
     memory: MemoryStore,
     data_dir: std::path::PathBuf,
     max_iterations: usize,
+    quiet_mode: bool,
 }
 
 impl Agent {
@@ -38,7 +39,13 @@ impl Agent {
             memory,
             data_dir,
             max_iterations,
+            quiet_mode: false,
         })
+    }
+
+    /// Enable quiet mode (suppress tool call output)
+    pub fn set_quiet_mode(&mut self, quiet: bool) {
+        self.quiet_mode = quiet;
     }
 
     /// Process a user message through the full agent loop:
@@ -82,37 +89,43 @@ impl Agent {
 
                     // Execute each tool call
                     for call in &calls {
-                        println!(
-                            "\n  {} {} ({})",
-                            "🔧".bright_yellow(),
-                            format!("Calling tool: {}", call.name).bright_yellow(),
-                            serde_json::to_string(&call.arguments)
-                                .unwrap_or_default()
-                                .dimmed()
-                        );
+                        if !self.quiet_mode {
+                            println!(
+                                "\n  {} {} ({})",
+                                "🔧".bright_yellow(),
+                                format!("Calling tool: {}", call.name).bright_yellow(),
+                                serde_json::to_string(&call.arguments)
+                                    .unwrap_or_default()
+                                    .dimmed()
+                            );
+                        }
 
                         let result = match self.tools.execute(&call.name, call.arguments.clone()).await {
                             Ok(result) => {
-                                let status = if result.success {
-                                    "✅".to_string()
-                                } else {
-                                    "❌".to_string()
-                                };
-                                println!(
-                                    "  {} {}",
-                                    status,
-                                    if result.output.len() > 200 {
-                                        format!("{}...", &result.output[..200])
+                                if !self.quiet_mode {
+                                    let status = if result.success {
+                                        "✅".to_string()
                                     } else {
-                                        result.output.clone()
-                                    }
-                                    .dimmed()
-                                );
+                                        "❌".to_string()
+                                    };
+                                    println!(
+                                        "  {} {}",
+                                        status,
+                                        if result.output.len() > 200 {
+                                            format!("{}...", &result.output[..200])
+                                        } else {
+                                            result.output.clone()
+                                        }
+                                        .dimmed()
+                                    );
+                                }
                                 result
                             }
                             Err(e) => {
                                 let err_msg = format!("Tool error: {}", e);
-                                println!("  {} {}", "❌", err_msg.bright_red());
+                                if !self.quiet_mode {
+                                    println!("  {} {}", "❌", err_msg.bright_red());
+                                }
                                 crate::tools::ToolResult::err(err_msg)
                             }
                         };

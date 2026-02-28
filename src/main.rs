@@ -3,6 +3,7 @@ mod config;
 mod context;
 mod llm;
 mod memory;
+mod telegram_bot;
 mod terminal;
 mod tools;
 
@@ -52,22 +53,30 @@ enum Commands {
     },
     /// List configured tools
     Tools,
+    /// Start Telegram bot mode (responds to messages on Telegram)
+    TelegramBot,
 }
 
 // ── Main ─────────────────────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing
+    let cli = Cli::parse();
+
+    // Initialize tracing with different levels based on mode
+    let log_level = match &cli.command {
+        Some(Commands::TelegramBot) => "warn", // Quiet mode for telegram bot
+        _ => "info",                           // Normal mode for everything else
+    };
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("gmv_agent=info".parse().unwrap()),
+                .add_directive(format!("gmv_agent={}", log_level).parse().unwrap()),
         )
         .with_target(false)
         .init();
 
-    let cli = Cli::parse();
     let config = AppConfig::load().context("Failed to load configuration")?;
 
     match cli.command {
@@ -77,6 +86,7 @@ async fn main() -> Result<()> {
             list_tools(&config);
             Ok(())
         }
+        Some(Commands::TelegramBot) => run_telegram_bot(&config).await,
         None => run_interactive(&config).await,
     }
 }
@@ -103,7 +113,10 @@ async fn run_setup(config: &AppConfig, service: Option<&str>) -> Result<()> {
             )
             .await?;
 
-            println!("{}", "Google Calendar setup complete!".bright_green().bold());
+            println!(
+                "{}",
+                "Google Calendar setup complete!".bright_green().bold()
+            );
             Ok(())
         }
         Some(other) => {
@@ -146,6 +159,77 @@ async fn run_oneshot(config: &AppConfig, message: &str) -> Result<()> {
 
     let response = agent.chat(message).await?;
     println!("{}", response);
+    Ok(())
+}
+
+// ── Telegram Bot Mode ────────────────────────────────────────────────
+
+async fn run_telegram_bot(config: &AppConfig) -> Result<()> {
+    use crate::telegram_bot::TelegramBot;
+
+    // Check if Telegram is configured
+    let bot_token = config.telegram_bot_token.as_ref().context(
+        "Telegram bot token not configured.\n\
+             Add TELEGRAM_BOT_TOKEN to your .env file.",
+    )?;
+
+    // Clear screen for clean display
+    print!("\x1B[2J\x1B[1;1H");
+
+    println!(
+        "{}",
+        "╔══════════════════════════════════════════════════╗".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║    🤖 GMV Agent - Telegram Bot Mode             ║".bright_cyan()
+    );
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════╝".bright_cyan()
+    );
+    println!();
+
+    // Suppress all tracing output temporarily
+    std::env::set_var("RUST_LOG", "error");
+
+    let (llm, tools) = build_components(config)?;
+    let system_prompt = build_system_prompt(config);
+
+    let mut agent = Agent::new(
+        llm,
+        tools,
+        system_prompt,
+        config.max_context_messages,
+        config.max_tool_iterations,
+        config.data_dir.clone(),
+    )?;
+
+    // Enable quiet mode for clean output
+    agent.set_quiet_mode(true);
+
+    let tool_count = agent.tool_names().len();
+    println!(
+        "{} {}",
+        "✓".bright_green(),
+        format!("Loaded {} tools", tool_count).bright_green()
+    );
+    println!(
+        "{} {}",
+        "✓".bright_green(),
+        "Connected to LLM".bright_green()
+    );
+    println!("{} {}", "✓".bright_green(), "Bot is ready!".bright_green());
+    println!();
+    println!(
+        "{}",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━".dimmed()
+    );
+    println!();
+
+    let mut bot = TelegramBot::new(bot_token.clone());
+    bot.start_polling(&mut agent).await?;
+
     Ok(())
 }
 
@@ -255,9 +339,7 @@ fn build_components(config: &AppConfig) -> Result<(Box<dyn LlmProvider>, ToolReg
             let api_key = config
                 .anthropic_api_key
                 .as_ref()
-                .context(
-                    "ANTHROPIC_API_KEY not set. Add it to your .env file to use Anthropic.",
-                )?
+                .context("ANTHROPIC_API_KEY not set. Add it to your .env file to use Anthropic.")?
                 .clone();
             Box::new(AnthropicProvider::new(
                 api_key,
@@ -269,9 +351,7 @@ fn build_components(config: &AppConfig) -> Result<(Box<dyn LlmProvider>, ToolReg
             let api_key = config
                 .openai_api_key
                 .as_ref()
-                .context(
-                    "OPENAI_API_KEY not set. Add it to your .env file to use OpenAI.",
-                )?
+                .context("OPENAI_API_KEY not set. Add it to your .env file to use OpenAI.")?
                 .clone();
             Box::new(OpenAIProvider::new(
                 api_key,
