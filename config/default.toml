@@ -21,6 +21,9 @@ enabled = false
 redirect_port = 8085
 scopes = ["https://www.googleapis.com/auth/calendar"]
 
+[gmail]
+enabled = false
+
 [telegram]
 enabled = false
 

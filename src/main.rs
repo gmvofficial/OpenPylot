@@ -20,6 +20,10 @@ use crate::terminal::Terminal;
 use crate::tools::calendar::{
     authorize_google, CalendarConfig, CreateCalendarEvent, CreateMeeting, ListCalendarEvents,
 };
+use crate::tools::gmail::{
+    authorize_gmail, GmailConfig, GmailDraftCreateTool, GmailDraftGetTool, GmailDraftListTool,
+    GmailDraftSendTool, GmailGetTool, GmailReplyTool, GmailSearchTool, GmailSendTool,
+};
 use crate::tools::notes::{CreateNote, DeleteNote, ListNotes, SearchNotes};
 use crate::tools::reminder::{CompleteReminder, ListReminders, SetReminder};
 use crate::tools::telegram::{GetTelegramUpdates, SendTelegramMessage};
@@ -119,9 +123,30 @@ async fn run_setup(config: &AppConfig, service: Option<&str>) -> Result<()> {
             );
             Ok(())
         }
+        Some("gmail") => {
+            let client_id = config
+                .google_client_id
+                .as_ref()
+                .context("GOOGLE_CLIENT_ID not set. Add it to your .env file.")?;
+            let client_secret = config
+                .google_client_secret
+                .as_ref()
+                .context("GOOGLE_CLIENT_SECRET not set. Add it to your .env file.")?;
+
+            authorize_gmail(
+                client_id,
+                client_secret,
+                config.google_redirect_port,
+                &config.data_dir,
+            )
+            .await?;
+
+            println!("{}", "Gmail setup complete!".bright_green().bold());
+            Ok(())
+        }
         Some(other) => {
             println!(
-                "{} Unknown service: '{}'\n\nAvailable services:\n  • google-calendar",
+                "{} Unknown service: '{}'\n\nAvailable services:\n  • google-calendar\n  • gmail",
                 "⚠".bright_yellow(),
                 other
             );
@@ -134,6 +159,10 @@ async fn run_setup(config: &AppConfig, service: Option<&str>) -> Result<()> {
             println!(
                 "  {} — Authorize Google Calendar OAuth2",
                 "gmv-agent setup google-calendar".bright_green()
+            );
+            println!(
+                "  {} — Authorize Gmail OAuth2",
+                "gmv-agent setup gmail".bright_green()
             );
             println!("\nFor general configuration, edit your .env file.");
             println!("See .env.example for available options.\n");
@@ -301,6 +330,28 @@ fn build_tool_registry(config: &AppConfig) -> ToolRegistry {
         }
     }
 
+    // -- Gmail (if configured) --
+    if config.gmail_enabled {
+        if let (Some(client_id), Some(client_secret)) =
+            (&config.google_client_id, &config.google_client_secret)
+        {
+            let gmail_config = GmailConfig {
+                data_dir: data_dir.clone(),
+                client_id: client_id.clone(),
+                client_secret: client_secret.clone(),
+            };
+            tools.register(Box::new(GmailSearchTool::new(gmail_config.clone())));
+            tools.register(Box::new(GmailGetTool::new(gmail_config.clone())));
+            tools.register(Box::new(GmailSendTool::new(gmail_config.clone())));
+            tools.register(Box::new(GmailReplyTool::new(gmail_config.clone())));
+            tools.register(Box::new(GmailDraftCreateTool::new(gmail_config.clone())));
+            tools.register(Box::new(GmailDraftSendTool::new(gmail_config.clone())));
+            tools.register(Box::new(GmailDraftListTool::new(gmail_config.clone())));
+            tools.register(Box::new(GmailDraftGetTool::new(gmail_config)));
+            tracing::info!("Gmail tools loaded");
+        }
+    }
+
     // -- Telegram (if configured) --
     if config.telegram_enabled {
         if let Some(ref bot_token) = config.telegram_bot_token {
@@ -381,20 +432,23 @@ You have access to the following tool categories:
 - **Notes**: Create, list, search, and delete personal notes
 - **Reminders**: Set, list, and complete reminders
 - **Google Calendar**: Create events, list upcoming events, and create meetings with Google Meet links
+- **Gmail**: Search, read, send, and reply to emails; create and manage drafts
 - **Telegram**: Send messages and check updates via Telegram Bot
 - **WhatsApp**: Send messages via WhatsApp (Twilio)
 
 Guidelines:
 1. Use the available tools to help the user accomplish tasks.
 2. When creating calendar events, clarify the timezone if ambiguous. Use ISO 8601 format for datetimes.
-3. Before sending messages (Telegram/WhatsApp), confirm the recipient and content with the user unless they're explicit.
+3. Before sending messages (Telegram/WhatsApp) or emails (Gmail), confirm the recipient and content with the user unless they're explicit.
 4. For notes, use descriptive titles and appropriate tags for easy retrieval.
 5. Be concise in responses but thorough in tool usage.
 6. If a tool is not configured (e.g., missing API key), inform the user and suggest how to set it up.
-7. When listing items (notes, events, reminders), format them clearly.
-8. Current date and time: {datetime}
-9. If the user asks you to remember something, create a note for it.
-10. For meetings, always try to include a Google Meet link by using the create_meeting tool."#,
+7. When listing items (notes, events, reminders, emails), format them clearly using simple numbered lists.
+8. When formatting responses, use plain text with simple formatting. Avoid mixing underscores (_) and asterisks (*) in the same response as they can cause display issues.
+9. Current date and time: {datetime}
+10. If the user asks you to remember something, create a note for it.
+11. For meetings, always try to include a Google Meet link by using the create_meeting tool.
+12. Always confirm with the user before sending emails or drafts via Gmail."#,
         name = config.agent_name,
         persona = config.agent_persona,
         datetime = now.format("%Y-%m-%d %H:%M:%S %Z"),

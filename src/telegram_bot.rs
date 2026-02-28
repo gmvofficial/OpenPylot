@@ -29,22 +29,22 @@ impl TelegramBot {
 
         loop {
             match self.poll_updates(agent).await {
-                Ok(_) => {}
+                Ok(_) => {
+                    // No sleep needed - long polling handles timing
+                }
                 Err(e) => {
                     error!("❌ Error: {}", e);
-                    sleep(Duration::from_secs(5)).await;
+                    // Only sleep on error to avoid hammering the API
+                    sleep(Duration::from_secs(3)).await;
                 }
             }
-
-            // Poll every 1 second
-            sleep(Duration::from_secs(1)).await;
         }
     }
 
     /// Poll for new updates from Telegram
     async fn poll_updates(&mut self, agent: &mut Agent) -> Result<()> {
         let url = format!(
-            "https://api.telegram.org/bot{}/getUpdates?offset={}&timeout=30",
+            "https://api.telegram.org/bot{}/getUpdates?offset={}&timeout=5",
             self.bot_token,
             self.last_update_id + 1
         );
@@ -184,9 +184,21 @@ impl TelegramBot {
     async fn send_message(&self, chat_id: i64, text: &str) -> Result<()> {
         let url = format!("https://api.telegram.org/bot{}/sendMessage", self.bot_token);
 
+        // Telegram message limit is 4096 characters
+        let message_text = if text.len() > 4096 {
+            warn!(
+                "Message too long ({}), truncating to 4096 chars",
+                text.len()
+            );
+            format!("{}...\n\n(Message truncated - too long)", &text[..4090])
+        } else {
+            text.to_string()
+        };
+
+        // Try with Markdown first
         let body = serde_json::json!({
             "chat_id": chat_id,
-            "text": text,
+            "text": message_text,
             "parse_mode": "Markdown",
         });
 
@@ -201,7 +213,38 @@ impl TelegramBot {
         let status = resp.status();
         if !status.is_success() {
             let error_body: Value = resp.json().await?;
-            warn!("Failed to send message: {:?}", error_body);
+
+            // If Markdown parsing failed, retry without parse_mode (plain text)
+            if error_body
+                .get("description")
+                .and_then(|d| d.as_str())
+                .map(|s| s.contains("can't parse entities"))
+                .unwrap_or(false)
+            {
+                // Silently retry as plain text (debug level logging only)
+                tracing::debug!("Markdown parsing failed, retrying as plain text");
+
+                // Retry without Markdown
+                let plain_body = serde_json::json!({
+                    "chat_id": chat_id,
+                    "text": message_text,
+                });
+
+                let retry_resp = self
+                    .client
+                    .post(&url)
+                    .json(&plain_body)
+                    .send()
+                    .await
+                    .context("Failed to send plain text message")?;
+
+                if !retry_resp.status().is_success() {
+                    let retry_error: Value = retry_resp.json().await?;
+                    warn!("Failed to send plain text message: {:?}", retry_error);
+                }
+            } else {
+                warn!("Failed to send message: {:?}", error_body);
+            }
         }
 
         Ok(())

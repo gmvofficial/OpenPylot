@@ -30,6 +30,9 @@ pub struct AppConfig {
     pub google_client_secret: Option<String>,
     pub google_redirect_port: u16,
 
+    // Gmail
+    pub gmail_enabled: bool,
+
     // Telegram
     pub telegram_enabled: bool,
     pub telegram_bot_token: Option<String>,
@@ -49,6 +52,7 @@ struct TomlConfig {
     llm: Option<LlmToml>,
     storage: Option<StorageToml>,
     google_calendar: Option<GoogleCalendarToml>,
+    gmail: Option<GmailToml>,
     telegram: Option<TelegramToml>,
     whatsapp: Option<WhatsAppToml>,
 }
@@ -80,6 +84,11 @@ struct GoogleCalendarToml {
     redirect_port: Option<u16>,
     #[allow(dead_code)]
     scopes: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GmailToml {
+    enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -163,8 +172,14 @@ impl AppConfig {
             });
 
         let google_calendar_enabled = gcal.enabled.unwrap_or(false)
-            || (env_opt("GOOGLE_CLIENT_ID").is_some()
-                && env_opt("GOOGLE_CLIENT_SECRET").is_some());
+            || (env_opt("GOOGLE_CLIENT_ID").is_some() && env_opt("GOOGLE_CLIENT_SECRET").is_some());
+
+        let gmail_enabled = toml_cfg
+            .gmail
+            .as_ref()
+            .and_then(|g| g.enabled)
+            .unwrap_or(false)
+            || (env_opt("GOOGLE_CLIENT_ID").is_some() && env_opt("GOOGLE_CLIENT_SECRET").is_some());
 
         let telegram_enabled =
             tg.enabled.unwrap_or(false) || env_opt("TELEGRAM_BOT_TOKEN").is_some();
@@ -201,6 +216,8 @@ impl AppConfig {
                 .and_then(|s| s.parse().ok())
                 .or(gcal.redirect_port)
                 .unwrap_or(8085),
+
+            gmail_enabled,
 
             telegram_enabled,
             telegram_bot_token: env_opt("TELEGRAM_BOT_TOKEN"),
@@ -240,6 +257,7 @@ impl AppConfig {
             llm: None,
             storage: None,
             google_calendar: None,
+            gmail: None,
             telegram: None,
             whatsapp: None,
         })

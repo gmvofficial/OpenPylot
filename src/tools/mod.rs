@@ -1,8 +1,9 @@
-pub mod notes;
 pub mod calendar;
+pub mod gmail;
+pub mod notes;
+pub mod reminder;
 pub mod telegram;
 pub mod whatsapp;
-pub mod reminder;
 
 use anyhow::Result;
 use async_trait::async_trait;
