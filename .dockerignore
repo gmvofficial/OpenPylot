@@ -1,0 +1,46 @@
+# ── Git & CI ──────────────────────────────────────────────────────────
+.git/
+.github/
+.gitignore
+.dockerignore
+.pre-commit-config.yaml
+
+# ── Build artifacts ───────────────────────────────────────────────────
+**/target/
+__pycache__/
+*.py[cod]
+*.so
+*.dylib
+*.dSYM/
+*.node
+node_modules/
+dist/
+build/
+
+# ── Bindings & extras (not needed in Docker image) ───────────────────
+python/
+node/
+Formula/
+tests/
+docs/
+
+# ── Docs & config ────────────────────────────────────────────────────
+*.md
+!config/**
+
+# ── Environment & Secrets ─────────────────────────────────────────────
+.env
+.env.example
+*.enc
+
+# ── Virtual environments ─────────────────────────────────────────────
+venv/
+.venv/
+
+# ── OS & IDE ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

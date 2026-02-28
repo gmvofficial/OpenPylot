@@ -295,7 +295,7 @@ impl Tool for CreateCalendarEvent {
 
         let resp = self
             .client
-            .post("https://www.googleapis.com/calendar/v3/calendars/primary/events")
+            .post("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all")
             .bearer_auth(&token)
             .json(&event_body)
             .send()
@@ -306,8 +306,11 @@ impl Tool for CreateCalendarEvent {
         let body: Value = resp.json().await?;
 
         if !status.is_success() {
+            let error_detail = serde_json::to_string_pretty(&body).unwrap_or_default();
+            tracing::error!("Google Calendar API error ({}): {}", status, error_detail);
             return Ok(ToolResult::err(format!(
-                "Failed to create event: {}",
+                "Failed to create event (HTTP {}): {}",
+                status,
                 body.get("error")
                     .and_then(|e| e.get("message"))
                     .and_then(|m| m.as_str())
@@ -508,31 +511,45 @@ impl Tool for CreateMeeting {
     }
 
     async fn execute(&self, params: Value) -> Result<ToolResult> {
-        let title = params["title"]
-            .as_str()
-            .context("Missing 'title'")?;
-        let start_time = params["start_time"]
-            .as_str()
-            .context("Missing 'start_time'")?;
-        let end_time = params["end_time"]
-            .as_str()
-            .context("Missing 'end_time'")?;
+        let title = match params["title"].as_str() {
+            Some(t) => t,
+            None => return Ok(ToolResult::err("Missing required parameter 'title'")),
+        };
+        let start_time = match params["start_time"].as_str() {
+            Some(t) => t,
+            None => return Ok(ToolResult::err("Missing required parameter 'start_time'. Use ISO 8601 format, e.g. 2026-03-01T16:00:00+06:00")),
+        };
+        let end_time = match params["end_time"].as_str() {
+            Some(t) => t,
+            None => return Ok(ToolResult::err("Missing required parameter 'end_time'. Use ISO 8601 format, e.g. 2026-03-01T17:00:00+06:00")),
+        };
         let description = params["description"].as_str().unwrap_or("");
 
-        let attendees: Vec<Value> = params["attendees"]
-            .as_array()
-            .context("Missing 'attendees'")?
-            .iter()
-            .filter_map(|v| v.as_str())
-            .map(|email| json!({"email": email}))
-            .collect();
+        let attendees: Vec<Value> = match params["attendees"].as_array() {
+            Some(arr) => arr
+                .iter()
+                .filter_map(|v| v.as_str())
+                .map(|email| json!({"email": email}))
+                .collect(),
+            None => return Ok(ToolResult::err("Missing required parameter 'attendees'. Provide an array of email addresses.")),
+        };
 
-        let token = get_access_token(
+        let token = match get_access_token(
             &self.config.data_dir,
             &self.config.client_id,
             &self.config.client_secret,
         )
-        .await?;
+        .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::error!("Failed to get Google access token: {}", e);
+                return Ok(ToolResult::err(format!(
+                    "Google Calendar authentication error: {}. Try re-authorizing with 'gmv-agent setup google-calendar'.",
+                    e
+                )));
+            }
+        };
 
         let event_body = json!({
             "summary": title,
@@ -554,24 +571,41 @@ impl Tool for CreateMeeting {
             }
         });
 
-        let resp = self
+        tracing::debug!("Creating meeting with body: {}", serde_json::to_string_pretty(&event_body).unwrap_or_default());
+
+        let resp = match self
             .client
             .post(
                 "https://www.googleapis.com/calendar/v3/calendars/primary/events\
-                 ?conferenceDataVersion=1",
+                 ?conferenceDataVersion=1&sendUpdates=all",
             )
             .bearer_auth(&token)
             .json(&event_body)
             .send()
             .await
-            .context("Failed to create meeting")?;
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("HTTP request to Google Calendar failed: {}", e);
+                return Ok(ToolResult::err(format!("Failed to reach Google Calendar API: {}", e)));
+            }
+        };
 
         let status = resp.status();
-        let body: Value = resp.json().await?;
+        let body: Value = match resp.json().await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::error!("Failed to parse Google Calendar response: {}", e);
+                return Ok(ToolResult::err(format!("Failed to parse Google Calendar response: {}", e)));
+            }
+        };
 
         if !status.is_success() {
+            let error_detail = serde_json::to_string_pretty(&body).unwrap_or_default();
+            tracing::error!("Google Calendar API error ({}): {}", status, error_detail);
             return Ok(ToolResult::err(format!(
-                "Failed to create meeting: {}",
+                "Failed to create meeting (HTTP {}): {}",
+                status,
                 body.get("error")
                     .and_then(|e| e.get("message"))
                     .and_then(|m| m.as_str())
@@ -589,11 +623,11 @@ impl Tool for CreateMeeting {
             .unwrap_or_default();
 
         Ok(ToolResult::ok(format!(
-            "Meeting created successfully!\n\
+            "Meeting created successfully! Email invitations have been sent to all attendees.\n\
              Title: {}\n\
              Start: {}\n\
              End: {}\n\
-             Attendees: {}\n\
+             Attendees: {} (notified via email)\n\
              Google Meet: {}\n\
              ID: {}\n\
              Link: {}",

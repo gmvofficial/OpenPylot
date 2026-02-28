@@ -58,6 +58,7 @@ impl Agent {
 
         loop {
             iterations += 1;
+            tracing::info!("Agent loop iteration {}/{}", iterations, self.max_iterations);
             if iterations > self.max_iterations {
                 let msg = "Reached maximum tool call iterations. Stopping.";
                 tracing::warn!("{}", msg);
@@ -68,10 +69,13 @@ impl Agent {
             let messages = self.context.build_messages();
             let tool_defs = self.tools.definitions();
 
+            tracing::debug!("Sending {} messages to LLM with {} tool definitions", messages.len(), tool_defs.len());
+
             let response = self.llm.chat(&messages, &tool_defs).await?;
 
             match response {
                 LlmResponse::Text(text) => {
+                    tracing::info!("LLM returned text response (iteration {})", iterations);
                     // Final text response from LLM
                     self.context.push(Message::assistant(&text));
 
@@ -83,6 +87,12 @@ impl Agent {
                     return Ok(text);
                 }
                 LlmResponse::ToolCalls(calls) => {
+                    tracing::info!("LLM requested {} tool call(s) on iteration {}: {}", 
+                        calls.len(), iterations,
+                        calls.iter().map(|c| format!("{}({})", c.name, 
+                            serde_json::to_string(&c.arguments).unwrap_or_default()
+                        )).collect::<Vec<_>>().join(", ")
+                    );
                     // Record the assistant's tool-call message in context
                     self.context
                         .push(Message::assistant_tool_calls(calls.clone()));

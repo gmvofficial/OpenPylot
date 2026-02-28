@@ -2,7 +2,10 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::PathBuf;
 
-/// Top-level application configuration assembled from TOML + env vars.
+use crate::secrets::{self, SecretsVault};
+
+/// Top-level application configuration assembled from TOML + secrets vault + env vars.
+/// Priority: env vars > secrets vault > TOML defaults
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     // Agent
@@ -43,6 +46,9 @@ pub struct AppConfig {
     pub twilio_account_sid: Option<String>,
     pub twilio_auth_token: Option<String>,
     pub twilio_whatsapp_from: Option<String>,
+
+    // Scheduler
+    pub scheduler_enabled: bool,
 }
 
 /// Raw TOML structure for the config file.
@@ -55,6 +61,12 @@ struct TomlConfig {
     gmail: Option<GmailToml>,
     telegram: Option<TelegramToml>,
     whatsapp: Option<WhatsAppToml>,
+    scheduler: Option<SchedulerToml>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SchedulerToml {
+    enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,12 +117,49 @@ fn env_opt(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
+/// Map environment variable names to secrets vault key paths.
+fn env_to_vault_key(env_key: &str) -> Option<&'static str> {
+    match env_key {
+        "OPENAI_API_KEY" => Some("llm.openai.api_key"),
+        "ANTHROPIC_API_KEY" => Some("llm.anthropic.api_key"),
+        "GOOGLE_CLIENT_ID" => Some("google.client_id"),
+        "GOOGLE_CLIENT_SECRET" => Some("google.client_secret"),
+        "GOOGLE_REDIRECT_PORT" => None, // not stored in vault
+        "TELEGRAM_BOT_TOKEN" => Some("telegram.bot_token"),
+        "TELEGRAM_DEFAULT_CHAT_ID" => Some("telegram.default_chat_id"),
+        "TWILIO_ACCOUNT_SID" => Some("twilio.account_sid"),
+        "TWILIO_AUTH_TOKEN" => Some("twilio.auth_token"),
+        "TWILIO_WHATSAPP_FROM" => Some("twilio.whatsapp_from"),
+        _ => None,
+    }
+}
+
+/// Helper: returns env var if set and non-empty, then tries secrets vault, else None.
+fn secret_opt(key: &str, vault: &Option<SecretsVault>) -> Option<String> {
+    // Environment variables always win
+    if let Some(v) = env_opt(key) {
+        return Some(v);
+    }
+    // Then try secrets vault using mapped key path
+    if let Some(ref v) = vault {
+        if let Some(vault_key) = env_to_vault_key(key) {
+            if let Some(val) = v.get(vault_key) {
+                return Some(val);
+            }
+        }
+    }
+    None
+}
+
 impl AppConfig {
-    /// Load configuration from config/default.toml + environment variables.
-    /// Environment variables take precedence over TOML values.
+    /// Load configuration from config/default.toml + secrets vault + environment variables.
+    /// Priority: env vars > secrets vault > TOML defaults.
     pub fn load() -> Result<Self> {
-        // Try to load .env file (ignore if missing)
+        // Try to load .env file (ignore if missing — vault is preferred)
         let _ = dotenvy::dotenv();
+
+        // Try to open secrets vault (non-fatal if missing — falls back to .env)
+        let vault = Self::try_open_vault();
 
         // Load TOML config
         let toml_cfg = Self::load_toml()?;
@@ -155,12 +204,13 @@ impl AppConfig {
         });
         let tg = toml_cfg.telegram.unwrap_or(TelegramToml { enabled: None });
         let wa = toml_cfg.whatsapp.unwrap_or(WhatsAppToml { enabled: None });
+        let sched = toml_cfg.scheduler.unwrap_or(SchedulerToml { enabled: None });
 
-        let provider = env_opt("LLM_PROVIDER")
+        let provider = secret_opt("LLM_PROVIDER", &vault)
             .or(llm.provider)
             .unwrap_or_else(|| "openai".into());
 
-        let model = env_opt("LLM_MODEL")
+        let model = secret_opt("LLM_MODEL", &vault)
             .or(llm.model)
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| {
@@ -172,26 +222,33 @@ impl AppConfig {
             });
 
         let google_calendar_enabled = gcal.enabled.unwrap_or(false)
-            || (env_opt("GOOGLE_CLIENT_ID").is_some() && env_opt("GOOGLE_CLIENT_SECRET").is_some());
+            || (secret_opt("GOOGLE_CLIENT_ID", &vault).is_some()
+                && secret_opt("GOOGLE_CLIENT_SECRET", &vault).is_some());
 
         let gmail_enabled = toml_cfg
             .gmail
             .as_ref()
             .and_then(|g| g.enabled)
             .unwrap_or(false)
-            || (env_opt("GOOGLE_CLIENT_ID").is_some() && env_opt("GOOGLE_CLIENT_SECRET").is_some());
+            || (secret_opt("GOOGLE_CLIENT_ID", &vault).is_some()
+                && secret_opt("GOOGLE_CLIENT_SECRET", &vault).is_some());
 
         let telegram_enabled =
-            tg.enabled.unwrap_or(false) || env_opt("TELEGRAM_BOT_TOKEN").is_some();
+            tg.enabled.unwrap_or(false) || secret_opt("TELEGRAM_BOT_TOKEN", &vault).is_some();
 
         let whatsapp_enabled =
-            wa.enabled.unwrap_or(false) || env_opt("TWILIO_ACCOUNT_SID").is_some();
+            wa.enabled.unwrap_or(false) || secret_opt("TWILIO_ACCOUNT_SID", &vault).is_some();
+
+        let scheduler_enabled = sched.enabled.unwrap_or(false)
+            || env_opt("GMV_SCHEDULER_ENABLED")
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(false);
 
         Ok(AppConfig {
-            agent_name: env_opt("AGENT_NAME")
+            agent_name: secret_opt("AGENT_NAME", &vault)
                 .or(agent.name)
                 .unwrap_or_else(|| "GMV Agent".into()),
-            agent_persona: env_opt("AGENT_PERSONA")
+            agent_persona: secret_opt("AGENT_PERSONA", &vault)
                 .or(agent.persona)
                 .unwrap_or_else(|| {
                     "You are a helpful, concise, and professional personal AI assistant.".into()
@@ -204,15 +261,15 @@ impl AppConfig {
             llm_max_tokens: llm.max_tokens.unwrap_or(4096),
             llm_temperature: llm.temperature.unwrap_or(0.7),
 
-            openai_api_key: env_opt("OPENAI_API_KEY"),
-            anthropic_api_key: env_opt("ANTHROPIC_API_KEY"),
+            openai_api_key: secret_opt("OPENAI_API_KEY", &vault),
+            anthropic_api_key: secret_opt("ANTHROPIC_API_KEY", &vault),
 
             data_dir,
 
             google_calendar_enabled,
-            google_client_id: env_opt("GOOGLE_CLIENT_ID"),
-            google_client_secret: env_opt("GOOGLE_CLIENT_SECRET"),
-            google_redirect_port: env_opt("GOOGLE_REDIRECT_PORT")
+            google_client_id: secret_opt("GOOGLE_CLIENT_ID", &vault),
+            google_client_secret: secret_opt("GOOGLE_CLIENT_SECRET", &vault),
+            google_redirect_port: secret_opt("GOOGLE_REDIRECT_PORT", &vault)
                 .and_then(|s| s.parse().ok())
                 .or(gcal.redirect_port)
                 .unwrap_or(8085),
@@ -220,14 +277,31 @@ impl AppConfig {
             gmail_enabled,
 
             telegram_enabled,
-            telegram_bot_token: env_opt("TELEGRAM_BOT_TOKEN"),
-            telegram_default_chat_id: env_opt("TELEGRAM_DEFAULT_CHAT_ID"),
+            telegram_bot_token: secret_opt("TELEGRAM_BOT_TOKEN", &vault),
+            telegram_default_chat_id: secret_opt("TELEGRAM_DEFAULT_CHAT_ID", &vault),
 
             whatsapp_enabled,
-            twilio_account_sid: env_opt("TWILIO_ACCOUNT_SID"),
-            twilio_auth_token: env_opt("TWILIO_AUTH_TOKEN"),
-            twilio_whatsapp_from: env_opt("TWILIO_WHATSAPP_FROM"),
+            twilio_account_sid: secret_opt("TWILIO_ACCOUNT_SID", &vault),
+            twilio_auth_token: secret_opt("TWILIO_AUTH_TOKEN", &vault),
+            twilio_whatsapp_from: secret_opt("TWILIO_WHATSAPP_FROM", &vault),
+
+            scheduler_enabled,
         })
+    }
+
+    /// Attempt to open the secrets vault. Returns None if vault doesn't exist or can't be opened.
+    fn try_open_vault() -> Option<SecretsVault> {
+        let path = secrets::default_secrets_path();
+        if !path.exists() {
+            return None;
+        }
+        match SecretsVault::open(&path, None) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                tracing::debug!("Could not open secrets vault (falling back to .env): {e}");
+                None
+            }
+        }
     }
 
     fn load_toml() -> Result<TomlConfig> {
@@ -260,6 +334,7 @@ impl AppConfig {
             gmail: None,
             telegram: None,
             whatsapp: None,
+            scheduler: None,
         })
     }
 }

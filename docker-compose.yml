@@ -1,0 +1,36 @@
+# Docker Compose for GMV Agent
+#
+# Usage:
+#   docker compose up -d
+#
+# Secrets are passed via environment variables.
+# Create a .env file with your API keys:
+#   OPENAI_API_KEY=sk-...
+#   TELEGRAM_BOT_TOKEN=...
+#   TELEGRAM_CHAT_ID=...
+
+services:
+  gmv-agent:
+    build: .
+    image: ghcr.io/gmv-ai/gmv-agent:latest
+    container_name: gmv-agent
+    restart: unless-stopped
+    ports:
+      - "8443:8443"  # Webhook server
+    volumes:
+      - gmv-data:/home/gmv/.gmv-agent/data
+      - gmv-logs:/home/gmv/.gmv-agent/logs
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - RUST_LOG=${RUST_LOG:-info}
+
+volumes:
+  gmv-data:
+  gmv-logs:

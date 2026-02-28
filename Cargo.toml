@@ -1,9 +1,12 @@
 [package]
 name = "gmv-agent"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "GMV Agent - A Rust-powered personal AI assistant"
 license = "MIT"
+repository = "https://github.com/GMV-AI/gmv-agent"
+keywords = ["ai", "assistant", "agent", "personal-assistant"]
+categories = ["command-line-utilities"]
 
 [[bin]]
 name = "gmv-agent"
@@ -28,11 +31,70 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
 open = "5"
 urlencoding = "2"
+
+# Setup wizard & interactive prompts
+dialoguer = { version = "0.11", features = ["fuzzy-select"] }
+indicatif = "0.17"
+console = "0.15"
+
+# Secrets vault encryption
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
 base64 = "0.22"
+
+# Scheduler
+cron = "0.13"
+
+# Webhook server
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
 
 [profile.release]
 opt-level = 3
 lto = true
 
+# ── Integration tests (moved to tests/rust/integration/) ─────────────
+
+[[test]]
+name = "config_test"
+path = "tests/rust/integration/config_test.rs"
+
+[[test]]
+name = "reminders_test"
+path = "tests/rust/integration/reminders_test.rs"
+
+[[test]]
+name = "rsvp_test"
+path = "tests/rust/integration/rsvp_test.rs"
+
+[[test]]
+name = "scheduler_test"
+path = "tests/rust/integration/scheduler_test.rs"
+
+[[test]]
+name = "secrets_test"
+path = "tests/rust/integration/secrets_test.rs"
+
+# ── Rust unit tests ──────────────────────────────────────────────────
+
+[[test]]
+name = "unit_context"
+path = "tests/rust/unit/context_test.rs"
+
+[[test]]
+name = "unit_memory"
+path = "tests/rust/unit/memory_test.rs"
+
+[[test]]
+name = "unit_tools"
+path = "tests/rust/unit/tools_test.rs"
+
+[[test]]
+name = "unit_llm"
+path = "tests/rust/unit/llm_test.rs"
+
 [dev-dependencies]
 tempfile = "3"
+tokio-test = "0.4"
+tower = { version = "0.5", features = ["util"] }

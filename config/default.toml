@@ -4,7 +4,7 @@
 name = "GMV Agent"
 persona = "You are a helpful, concise, and professional personal AI assistant."
 max_context_messages = 50
-max_tool_iterations = 10
+max_tool_iterations = 15
 
 [llm]
 provider = "openai"          # "openai" or "anthropic"
@@ -28,4 +28,7 @@ enabled = false
 enabled = false
 
 [whatsapp]
+enabled = false
+
+[scheduler]
 enabled = false

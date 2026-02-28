@@ -1,0 +1,23 @@
+[package]
+name = "gmv-agent-python-bindings"
+version = "0.2.0"
+edition = "2021"
+description = "Python bindings for GMV Agent — A Rust-powered personal AI assistant"
+license = "MIT"
+repository = "https://github.com/GMV-AI/gmv-agent"
+publish = false
+
+[lib]
+name = "gmv_agent"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+dirs = "6"
+
+# Reference the main workspace crate (path-based for development)
+gmv-agent-core = { path = "..", package = "gmv-agent" }

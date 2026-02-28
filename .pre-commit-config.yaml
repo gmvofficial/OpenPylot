@@ -1,0 +1,62 @@
+# Pre-commit hooks for GMV Agent
+#
+# Install:
+#   pip install pre-commit   # or: brew install pre-commit
+#   pre-commit install
+#
+# Run manually:
+#   pre-commit run --all-files
+
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+
+  # Rust formatting (rustfmt)
+  - repo: local
+    hooks:
+      - id: rustfmt
+        name: rustfmt
+        entry: cargo fmt --
+        language: system
+        types: [rust]
+        pass_filenames: true
+
+      # Rust linting (clippy)
+      - id: clippy
+        name: clippy
+        entry: cargo clippy --all-targets -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      # Rust tests
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [pre-push]
+
+      # Check for secrets in committed files
+      - id: no-secrets
+        name: check for secrets
+        entry: bash -c 'grep -rn "sk-[a-zA-Z0-9]\\{20,\\}" --include="*.rs" --include="*.toml" --include="*.md" . && echo "FOUND SECRET KEYS!" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false
+
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args: ['-e', 'SC1091']  # Ignore sourced file not found

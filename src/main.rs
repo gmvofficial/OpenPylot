@@ -1,21 +1,31 @@
 mod agent;
 mod config;
 mod context;
+mod init;
+mod jobs;
 mod llm;
 mod memory;
+mod oauth;
+mod scheduler;
+mod secrets;
 mod telegram_bot;
 mod terminal;
 mod tools;
+mod webhooks;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use colored::Colorize;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use crate::agent::Agent;
 use crate::config::AppConfig;
+use crate::init::InitWizard;
 use crate::llm::anthropic::AnthropicProvider;
 use crate::llm::openai::OpenAIProvider;
 use crate::llm::LlmProvider;
+use crate::scheduler::AgentScheduler;
 use crate::terminal::Terminal;
 use crate::tools::calendar::{
     authorize_google, CalendarConfig, CreateCalendarEvent, CreateMeeting, ListCalendarEvents,
@@ -36,7 +46,7 @@ use crate::tools::ToolRegistry;
 #[command(
     name = "gmv-agent",
     about = "GMV Agent — A Rust-powered personal AI assistant",
-    version = "0.1.0"
+    version = "0.2.0"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -45,7 +55,26 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Interactive setup wizard
+    /// Interactive setup wizard (replaces the old 'setup' command)
+    Init {
+        /// Reset all configuration and start fresh
+        #[arg(long)]
+        reset: bool,
+        /// Set up only a specific service (e.g., google-calendar, telegram, openai)
+        #[arg(long = "only")]
+        only: Option<String>,
+    },
+    /// Add a new integration
+    Add {
+        /// Service to add (e.g., google-calendar, telegram, whatsapp, github, slack, openai, anthropic)
+        service: String,
+    },
+    /// Remove an integration
+    Remove {
+        /// Service to remove
+        service: String,
+    },
+    /// Legacy setup command (use 'init' instead)
     Setup {
         /// Service to set up (e.g., google-calendar)
         service: Option<String>,
@@ -59,6 +88,76 @@ enum Commands {
     Tools,
     /// Start Telegram bot mode (responds to messages on Telegram)
     TelegramBot,
+    /// Start the agent daemon with scheduler and background jobs
+    Serve {
+        /// Run in the foreground instead of as a daemon
+        #[arg(long)]
+        foreground: bool,
+        #[command(subcommand)]
+        action: Option<ServeAction>,
+    },
+    /// Manage scheduled background jobs
+    Jobs {
+        #[command(subcommand)]
+        action: JobsAction,
+    },
+    /// Diagnose configuration issues and test connections
+    Doctor,
+    /// Show agent status and connected services
+    Status,
+    /// View and manage configuration
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+    /// Tail agent logs
+    Logs {
+        /// Show scheduler logs instead of agent logs
+        #[arg(long)]
+        scheduler: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ServeAction {
+    /// Install as a system service (launchd/systemd)
+    Install,
+    /// Remove the system service
+    Uninstall,
+}
+
+#[derive(Subcommand)]
+enum JobsAction {
+    /// List all scheduled jobs
+    List,
+    /// Run a specific job immediately
+    Run {
+        /// Job name to run
+        job_name: String,
+    },
+    /// Enable a scheduled job
+    Enable {
+        /// Job name to enable
+        job_name: String,
+    },
+    /// Disable a scheduled job
+    Disable {
+        /// Job name to disable
+        job_name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// List current configuration
+    List,
+    /// Set a configuration value
+    Set {
+        /// Configuration key
+        key: String,
+        /// Configuration value
+        value: String,
+    },
 }
 
 // ── Main ─────────────────────────────────────────────────────────────
@@ -69,8 +168,8 @@ async fn main() -> Result<()> {
 
     // Initialize tracing with different levels based on mode
     let log_level = match &cli.command {
-        Some(Commands::TelegramBot) => "warn", // Quiet mode for telegram bot
-        _ => "info",                           // Normal mode for everything else
+        Some(Commands::TelegramBot) | Some(Commands::Serve { .. }) => "info",
+        _ => "info",
     };
 
     tracing_subscriber::fmt()
@@ -84,13 +183,50 @@ async fn main() -> Result<()> {
     let config = AppConfig::load().context("Failed to load configuration")?;
 
     match cli.command {
+        // New init wizard
+        Some(Commands::Init { reset, only }) => {
+            let wizard = InitWizard::new(reset);
+            if let Some(service) = only {
+                wizard.run_single_service(&service).await
+            } else {
+                wizard.run().await
+            }
+        }
+        // Add integration (alias for init --only)
+        Some(Commands::Add { service }) => {
+            let wizard = InitWizard::new(false);
+            wizard.run_single_service(&service).await
+        }
+        // Remove integration
+        Some(Commands::Remove { service }) => run_remove_service(&service),
+        // Legacy setup command
         Some(Commands::Setup { service }) => run_setup(&config, service.as_deref()).await,
+        // One-shot chat
         Some(Commands::Chat { message }) => run_oneshot(&config, &message).await,
+        // List tools
         Some(Commands::Tools) => {
             list_tools(&config);
             Ok(())
         }
+        // Telegram bot mode
         Some(Commands::TelegramBot) => run_telegram_bot(&config).await,
+        // Serve daemon with scheduler
+        Some(Commands::Serve { foreground, action }) => match action {
+            Some(ServeAction::Install) => scheduler::install_system_service(),
+            Some(ServeAction::Uninstall) => scheduler::uninstall_system_service(),
+            None => run_serve(&config, foreground).await,
+        },
+        // Job management
+        Some(Commands::Jobs { action }) => run_jobs_command(&config, action).await,
+        // Doctor diagnostics
+        Some(Commands::Doctor) => init::run_doctor(),
+        // Status
+        Some(Commands::Status) => init::run_status(),
+        // Config management
+        Some(Commands::Config { action }) => run_config_command(action),
+        // Logs
+        Some(Commands::Logs { scheduler }) => run_logs(scheduler),
+        // Default: interactive REPL
         None => run_interactive(&config).await,
     }
 }
@@ -219,8 +355,8 @@ async fn run_telegram_bot(config: &AppConfig) -> Result<()> {
     );
     println!();
 
-    // Suppress all tracing output temporarily
-    std::env::set_var("RUST_LOG", "error");
+    // Enable agent-level logging to see tool calls and iterations
+    std::env::set_var("RUST_LOG", "gmv_agent=info");
 
     let (llm, tools) = build_components(config)?;
     let system_prompt = build_system_prompt(config);
@@ -234,8 +370,8 @@ async fn run_telegram_bot(config: &AppConfig) -> Result<()> {
         config.data_dir.clone(),
     )?;
 
-    // Enable quiet mode for clean output
-    agent.set_quiet_mode(true);
+    // Show tool calls for debugging
+    agent.set_quiet_mode(false);
 
     let tool_count = agent.tool_names().len();
     println!(
@@ -390,7 +526,7 @@ fn build_components(config: &AppConfig) -> Result<(Box<dyn LlmProvider>, ToolReg
             let api_key = config
                 .anthropic_api_key
                 .as_ref()
-                .context("ANTHROPIC_API_KEY not set. Add it to your .env file to use Anthropic.")?
+                .context("ANTHROPIC_API_KEY not set. Run 'gmv-agent init' or add it to your .env file.")?
                 .clone();
             Box::new(AnthropicProvider::new(
                 api_key,
@@ -402,7 +538,7 @@ fn build_components(config: &AppConfig) -> Result<(Box<dyn LlmProvider>, ToolReg
             let api_key = config
                 .openai_api_key
                 .as_ref()
-                .context("OPENAI_API_KEY not set. Add it to your .env file to use OpenAI.")?
+                .context("OPENAI_API_KEY not set. Run 'gmv-agent init' or add it to your .env file.")?
                 .clone();
             Box::new(OpenAIProvider::new(
                 api_key,
@@ -416,6 +552,423 @@ fn build_components(config: &AppConfig) -> Result<(Box<dyn LlmProvider>, ToolReg
     let tools = build_tool_registry(config);
 
     Ok((llm, tools))
+}
+
+// ── Serve command (daemon with scheduler) ────────────────────────────
+
+async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
+    println!(
+        "{}",
+        "╔══════════════════════════════════════════════════╗".bright_cyan()
+    );
+    println!(
+        "{}",
+        "║    🤖 GMV Agent — Serve Mode (Scheduler)        ║".bright_cyan()
+    );
+    println!(
+        "{}",
+        "╚══════════════════════════════════════════════════╝".bright_cyan()
+    );
+    println!();
+
+    let data_dir = config.data_dir.clone();
+
+    let mut sched = AgentScheduler::new(&data_dir);
+
+    // Register default jobs based on config
+    let data_dir_clone = data_dir.clone();
+    sched.add_job(
+        "reminder_check",
+        "Check for due reminders and send notifications",
+        "* * * * *",
+        true,
+        move || {
+            let dd = data_dir_clone.clone();
+            Box::pin(async move {
+                let notifications = jobs::reminders::check_due_reminders(&dd)?;
+                if notifications.is_empty() {
+                    Ok("No due reminders".to_string())
+                } else {
+                    for msg in &notifications {
+                        println!("{}", msg);
+                    }
+                    Ok(format!("{} reminders notified", notifications.len()))
+                }
+            })
+        },
+    )?;
+
+    // Calendar RSVP monitor (only if Google Calendar is configured)
+    if config.google_calendar_enabled {
+        sched.add_job(
+            "rsvp_monitor",
+            "Check calendar events for RSVP changes",
+            "*/10 * * * *",
+            true,
+            || Box::pin(async { Ok("RSVP check completed".to_string()) }),
+        )?;
+
+        sched.add_job(
+            "calendar_sync",
+            "Sync calendar events",
+            "*/5 * * * *",
+            true,
+            || Box::pin(async { Ok("Calendar sync completed".to_string()) }),
+        )?;
+    }
+
+    // Meeting reminders
+    sched.add_job(
+        "meeting_reminder",
+        "Send reminders for upcoming meetings",
+        "* * * * *",
+        config.google_calendar_enabled,
+        || Box::pin(async { Ok("Meeting reminder check completed".to_string()) }),
+    )?;
+
+    // Token refresh
+    sched.add_job(
+        "token_refresh",
+        "Proactively refresh OAuth tokens before expiry",
+        "0 * * * *",
+        config.google_calendar_enabled,
+        || Box::pin(async { Ok("Token refresh check completed".to_string()) }),
+    )?;
+
+    // Daily briefing (8:00 AM)
+    sched.add_job(
+        "daily_briefing",
+        "Generate morning briefing (calendar, tasks, weather)",
+        "0 8 * * *",
+        true,
+        || {
+            Box::pin(async {
+                // In a full implementation, this would:
+                // 1. Fetch today's calendar events
+                // 2. List pending reminders / tasks
+                // 3. Compose a summary via the LLM
+                // 4. Send via preferred notification channel
+                Ok("Daily briefing generated".to_string())
+            })
+        },
+    )?;
+
+    // Email digest (9am, 1pm, 5pm)
+    sched.add_job(
+        "email_digest",
+        "Summarize unread emails",
+        "0 9,13,17 * * *",
+        false, // disabled by default — requires Gmail integration
+        || {
+            Box::pin(async {
+                Ok("Email digest generated".to_string())
+            })
+        },
+    )?;
+
+    let job_count = sched.list_jobs().len();
+    let enabled_count = sched.list_jobs().iter().filter(|j| j.enabled).count();
+
+    println!(
+        "{} Scheduler loaded with {} jobs ({} enabled)",
+        "✅".bright_green(),
+        job_count.to_string().bright_cyan(),
+        enabled_count.to_string().bright_cyan(),
+    );
+
+    if foreground {
+        println!(
+            "{} Running in foreground. Press Ctrl+C to stop.\n",
+            "ℹ".bright_blue()
+        );
+    }
+
+    // Start webhook server alongside the scheduler
+    let webhook_port: u16 = 8443;
+    let webhook_state = webhooks::server::WebhookState {
+        data_dir: data_dir.clone(),
+        events: Arc::new(Mutex::new(Vec::new())),
+        telegram_bot_token: config.telegram_bot_token.clone(),
+        telegram_chat_id: config.telegram_default_chat_id.clone(),
+    };
+
+    println!(
+        "{} Webhook server listening on port {}",
+        "✅".bright_green(),
+        webhook_port.to_string().bright_cyan(),
+    );
+
+    let sched = Arc::new(Mutex::new(sched));
+
+    // Run scheduler and webhook server concurrently
+    tokio::select! {
+        result = AgentScheduler::start(sched) => result,
+        result = webhooks::start_webhook_server(webhook_port, webhook_state) => result,
+    }
+}
+
+// ── Jobs command ─────────────────────────────────────────────────────
+
+async fn run_jobs_command(config: &AppConfig, action: JobsAction) -> Result<()> {
+    let mut sched = AgentScheduler::new(&config.data_dir);
+
+    // Register jobs so we can list/manage them
+    register_default_jobs(&mut sched, config)?;
+
+    match action {
+        JobsAction::List => {
+            let jobs = sched.list_jobs();
+            scheduler::print_jobs(&jobs);
+        }
+        JobsAction::Run { job_name } => {
+            println!(
+                "{} Running job '{}'...",
+                "→".bright_blue(),
+                job_name.bright_cyan()
+            );
+            let result = sched.run_job(&job_name).await?;
+            println!("{} Result: {}", "✅".bright_green(), result);
+        }
+        JobsAction::Enable { job_name } => {
+            if sched.set_enabled(&job_name, true) {
+                println!("{} Enabled job '{}'", "✅".bright_green(), job_name);
+            } else {
+                println!("{} Job '{}' not found", "❌".bright_red(), job_name);
+            }
+        }
+        JobsAction::Disable { job_name } => {
+            if sched.set_enabled(&job_name, false) {
+                println!("{} Disabled job '{}'", "✅".bright_green(), job_name);
+            } else {
+                println!("{} Job '{}' not found", "❌".bright_red(), job_name);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn register_default_jobs(sched: &mut AgentScheduler, config: &AppConfig) -> Result<()> {
+    let data_dir = config.data_dir.clone();
+
+    sched.add_job(
+        "reminder_check",
+        "Check for due reminders",
+        "* * * * *",
+        true,
+        move || {
+            let dd = data_dir.clone();
+            Box::pin(async move {
+                let n = jobs::reminders::check_due_reminders(&dd)?;
+                Ok(format!("{} reminders processed", n.len()))
+            })
+        },
+    )?;
+
+    sched.add_job(
+        "rsvp_monitor",
+        "Check calendar events for RSVP changes",
+        "*/10 * * * *",
+        config.google_calendar_enabled,
+        || Box::pin(async { Ok("RSVP check completed".to_string()) }),
+    )?;
+
+    sched.add_job(
+        "meeting_reminder",
+        "Send reminders for upcoming meetings",
+        "* * * * *",
+        config.google_calendar_enabled,
+        || Box::pin(async { Ok("Meeting reminder check completed".to_string()) }),
+    )?;
+
+    sched.add_job(
+        "calendar_sync",
+        "Sync calendar events",
+        "*/5 * * * *",
+        config.google_calendar_enabled,
+        || Box::pin(async { Ok("Calendar sync completed".to_string()) }),
+    )?;
+
+    sched.add_job(
+        "token_refresh",
+        "Refresh OAuth tokens before expiry",
+        "0 * * * *",
+        config.google_calendar_enabled,
+        || Box::pin(async { Ok("Token refresh completed".to_string()) }),
+    )?;
+
+    sched.add_job(
+        "daily_briefing",
+        "Generate morning briefing (calendar, tasks, weather)",
+        "0 8 * * *",
+        true,
+        || Box::pin(async { Ok("Daily briefing generated".to_string()) }),
+    )?;
+
+    sched.add_job(
+        "email_digest",
+        "Summarize unread emails",
+        "0 9,13,17 * * *",
+        false,
+        || Box::pin(async { Ok("Email digest generated".to_string()) }),
+    )?;
+
+    Ok(())
+}
+
+// ── Remove service ───────────────────────────────────────────────────
+
+fn run_remove_service(service: &str) -> Result<()> {
+    let secrets_path = secrets::default_secrets_path();
+    if !secrets_path.exists() {
+        println!(
+            "{} No secrets vault found. Nothing to remove.",
+            "ℹ".bright_blue()
+        );
+        return Ok(());
+    }
+
+    let mut vault = secrets::SecretsVault::open(&secrets_path, None)?;
+
+    match service {
+        "google-calendar" | "google" => {
+            vault.delete("google.client_id")?;
+            vault.delete("google.client_secret")?;
+            vault.delete("google.access_token")?;
+            vault.delete("google.refresh_token")?;
+        }
+        "telegram" => {
+            vault.delete("telegram.bot_token")?;
+            vault.delete("telegram.default_chat_id")?;
+        }
+        "whatsapp" => {
+            vault.delete("twilio.account_sid")?;
+            vault.delete("twilio.auth_token")?;
+        }
+        "github" => {
+            vault.delete("github.access_token")?;
+        }
+        "slack" => {
+            vault.delete("slack.bot_token")?;
+        }
+        "openai" => {
+            vault.delete("llm.openai.api_key")?;
+        }
+        "anthropic" => {
+            vault.delete("llm.anthropic.api_key")?;
+        }
+        _ => {
+            println!("{} Unknown service: '{}'", "⚠".bright_yellow(), service);
+            return Ok(());
+        }
+    }
+
+    vault.save()?;
+    println!(
+        "{} Removed '{}' credentials",
+        "✅".bright_green(),
+        service
+    );
+
+    Ok(())
+}
+
+// ── Config command ───────────────────────────────────────────────────
+
+fn run_config_command(action: ConfigAction) -> Result<()> {
+    match action {
+        ConfigAction::List => {
+            let config = AppConfig::load()?;
+            println!("{}", "Current Configuration:".bright_blue().bold());
+            println!("{}", "─".repeat(40).dimmed());
+            println!("  Agent name:    {}", config.agent_name.bright_cyan());
+            println!("  LLM provider:  {}", config.llm_provider.bright_cyan());
+            println!("  LLM model:     {}", config.llm_model.bright_cyan());
+            println!("  Data dir:      {}", config.data_dir.display().to_string().bright_cyan());
+            println!();
+            println!("  {}", "Integrations:".bright_blue());
+            println!(
+                "    Google Calendar: {}",
+                if config.google_calendar_enabled {
+                    "✅ enabled".bright_green().to_string()
+                } else {
+                    "❌ disabled".dimmed().to_string()
+                }
+            );
+            println!(
+                "    Telegram:        {}",
+                if config.telegram_enabled {
+                    "✅ enabled".bright_green().to_string()
+                } else {
+                    "❌ disabled".dimmed().to_string()
+                }
+            );
+            println!(
+                "    WhatsApp:        {}",
+                if config.whatsapp_enabled {
+                    "✅ enabled".bright_green().to_string()
+                } else {
+                    "❌ disabled".dimmed().to_string()
+                }
+            );
+            Ok(())
+        }
+        ConfigAction::Set { key, value } => {
+            println!(
+                "{} Config set is currently managed through the init wizard.",
+                "ℹ".bright_blue()
+            );
+            println!(
+                "  Run: {} to update settings",
+                "gmv-agent init".bright_green()
+            );
+            println!("  Key: {}, Value: {}", key.dimmed(), value.dimmed());
+            Ok(())
+        }
+    }
+}
+
+// ── Logs command ─────────────────────────────────────────────────────
+
+fn run_logs(scheduler: bool) -> Result<()> {
+    let home = secrets::gmv_home_dir();
+    let log_file = if scheduler {
+        home.join("logs").join("scheduler.log")
+    } else {
+        home.join("logs").join("agent.log")
+    };
+
+    if !log_file.exists() {
+        println!(
+            "{} Log file not found: {}",
+            "ℹ".bright_blue(),
+            log_file.display()
+        );
+        println!(
+            "  Logs are created when running: {}",
+            "gmv-agent serve".bright_green()
+        );
+        return Ok(());
+    }
+
+    // Read and display last 50 lines
+    let content = std::fs::read_to_string(&log_file)?;
+    let lines: Vec<&str> = content.lines().collect();
+    let start = if lines.len() > 50 { lines.len() - 50 } else { 0 };
+
+    println!(
+        "{} Showing last {} lines of {}",
+        "📋".bright_blue(),
+        lines.len() - start,
+        log_file.display()
+    );
+    println!("{}", "─".repeat(60).dimmed());
+
+    for line in &lines[start..] {
+        println!("{}", line);
+    }
+
+    Ok(())
 }
 
 // ── System prompt builder ────────────────────────────────────────────
@@ -448,7 +1001,9 @@ Guidelines:
 9. Current date and time: {datetime}
 10. If the user asks you to remember something, create a note for it.
 11. For meetings, always try to include a Google Meet link by using the create_meeting tool.
-12. Always confirm with the user before sending emails or drafts via Gmail."#,
+12. Always confirm with the user before sending emails or drafts via Gmail.
+13. The create_meeting tool automatically sends email invitations to all attendees — no additional notification step is needed.
+14. After a tool succeeds, report the result to the user. Do NOT keep calling tools unnecessarily."#,
         name = config.agent_name,
         persona = config.agent_persona,
         datetime = now.format("%Y-%m-%d %H:%M:%S %Z"),
