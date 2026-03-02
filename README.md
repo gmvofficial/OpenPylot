@@ -1,6 +1,6 @@
 # GMV Agent
 
-A Rust-powered personal AI assistant with CLI, Python, and Node.js interfaces. Schedule meetings, monitor RSVPs, manage notes, set reminders, and interact through Telegram or WhatsApp — all backed by an encrypted secrets vault and a pluggable LLM provider (OpenAI / Anthropic).
+A Rust-powered personal AI assistant with CLI, Web Dashboard, Python, and Node.js interfaces. Schedule meetings, monitor RSVPs, send and search emails, manage notes, set reminders, and interact through a real-time web chat, Telegram, or WhatsApp — all backed by an encrypted secrets vault and a pluggable LLM provider (OpenAI / Anthropic).
 
 ---
 
@@ -10,6 +10,8 @@ A Rust-powered personal AI assistant with CLI, Python, and Node.js interfaces. S
 |----------|-------------|
 | **LLM Providers** | OpenAI (GPT-4o) and Anthropic (Claude) with hot-swappable configuration |
 | **Google Calendar** | OAuth 2.0 login, list/create events, create meetings with Google Meet links |
+| **Gmail** | Search emails, send & reply, create/send/delete drafts — uses the same Google OAuth credentials |
+| **Web Dashboard** | Next.js web UI with real-time chat (WebSocket), integrations setup, knowledge base, settings, and persistent conversation history |
 | **Telegram** | Send messages, receive updates, full bot mode with slash commands |
 | **WhatsApp** | Send messages via Twilio |
 | **Notes** | Create, list, search, delete — stored locally as JSON |
@@ -61,7 +63,7 @@ gmv-agent               # Start interactive REPL
 The `init` wizard guides you through:
 1. LLM provider selection and API key
 2. Agent name and persona
-3. Integrations (Google Calendar, Telegram, WhatsApp)
+3. Integrations (Google Calendar & Gmail, Telegram, WhatsApp)
 4. Notification preferences
 5. Background scheduler configuration
 
@@ -93,6 +95,8 @@ You> Take a note: Review Q1 roadmap before the all-hands
 You> /tools
 Available tools: create_note, list_notes, search_notes, delete_note,
   list_calendar_events, create_calendar_event, create_meeting,
+  gmail_search, gmail_get, gmail_send, gmail_reply,
+  gmail_draft_create, gmail_draft_send, gmail_draft_delete,
   set_reminder, list_reminders, complete_reminder,
   send_telegram_message, get_telegram_updates, send_whatsapp_message
 ```
@@ -416,6 +420,91 @@ gmv-agent serve uninstall   # Remove service
 
 ---
 
+## Web Dashboard
+
+GMV Agent ships with a Next.js web UI that lets you manage everything from the browser.
+
+### Starting the Web UI
+
+```bash
+# 1. Start the backend API server (port 3001)
+gmv-agent serve
+
+# 2. In another terminal, start the frontend dev server (port 3000)
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) to access the dashboard.
+
+### Building for Production
+
+```bash
+cd frontend
+npm run build    # Generates static files in frontend/out/
+```
+
+The static build can be served by the Rust backend directly or any static file server.
+
+### Pages
+
+| Page | Path | Description |
+|------|------|-------------|
+| **Home** | `/` | Landing page with quick links |
+| **Chat** | `/chat` | Real-time chat with the agent via WebSocket |
+| **Integrations** | `/setup` | Connect & disconnect services (Google, Telegram, WhatsApp, etc.) |
+| **Knowledge Base** | `/knowledge` | Manage document collections, upload text, and search |
+| **Dashboard** | `/dashboard` | Agent status, scheduled jobs, recent logs |
+| **Settings** | `/settings` | Agent config (name, persona, model, temperature) and memory management |
+
+### Connecting Integrations via the Web UI
+
+1. Navigate to **Integrations** (`/setup`)
+2. Click **Connect** on a service
+3. For **Telegram / WhatsApp / GitHub / Slack**: a credential modal appears — enter your tokens or API keys
+4. For **Google Calendar / Gmail**: the backend starts an OAuth flow and opens the authorization page in a new tab
+5. After completing the flow, the integration shows as **Connected** (the page polls for status changes)
+6. Use the **Test** button to verify connectivity
+7. Use **Disconnect** to remove stored credentials
+
+Integrations configured via the CLI (`gmv-agent init` or `gmv-agent add`) are automatically visible in the web UI.
+
+### Knowledge Base
+
+1. Navigate to **Knowledge Base** (`/knowledge`)
+2. Create a collection, then click into it
+3. Use **Upload** to add a text document (paste content or import a `.txt` / `.md` file)
+4. The **Search** bar performs keyword search across all documents
+
+### API Endpoints
+
+The backend API (default `http://localhost:3001`) exposes:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/status` | Agent status |
+| `GET` | `/api/integrations` | List integrations with live vault status |
+| `POST` | `/api/integrations/{service}/connect` | Connect (accepts optional `credentials` body) |
+| `DELETE` | `/api/integrations/{service}` | Disconnect |
+| `POST` | `/api/integrations/{service}/test` | Test connectivity |
+| `GET` | `/api/knowledge/collections` | List collections |
+| `POST` | `/api/knowledge/collections` | Create collection |
+| `GET` | `/api/knowledge/documents` | List all documents |
+| `POST` | `/api/knowledge/documents` | Upload document |
+| `POST` | `/api/knowledge/search` | Search documents |
+| `GET` | `/api/jobs` | List scheduled jobs |
+| `PATCH` | `/api/jobs/{name}` | Update job (enable/disable) |
+| `POST` | `/api/jobs/{name}/run` | Run job immediately |
+| `GET` | `/api/settings` | Get agent settings |
+| `PATCH` | `/api/settings` | Update settings |
+| `GET` | `/api/memory` | List memory facts |
+| `GET` | `/api/logs` | Recent logs (supports `?level=` and `?limit=` query params) |
+| `WS` | `/ws/chat` | WebSocket for real-time chat |
+| `WS` | `/ws/notifications` | WebSocket for push notifications |
+
+---
+
 ## Docker
 
 ```bash
@@ -425,8 +514,10 @@ docker compose up -d
 # Or build manually
 docker build -t gmv-agent .
 docker run --rm -it \
-  -v ~/.gmv-agent:/home/agent/.gmv-agent \
+  -v ~/.gmv-agent:/home/gmv/.gmv-agent \
   -e OPENAI_API_KEY=sk-... \
+  -p 3001:3001 \
+  -p 8443:8443 \
   gmv-agent
 ```
 
@@ -450,6 +541,10 @@ The `docker-compose.yml` includes volume mounts for `~/.gmv-agent` to persist co
 │   ├── oauth.rs           # Browser-based OAuth 2.0 flows
 │   ├── telegram_bot.rs    # Telegram long-polling bot
 │   ├── lib.rs             # Library crate (re-exports modules)
+│   ├── api/
+│   │   ├── mod.rs         # Axum router & embedded static file server
+│   │   ├── handlers.rs    # REST API handlers (integrations, knowledge, settings)
+│   │   └── ws.rs          # WebSocket chat & notification handlers
 │   ├── llm/
 │   │   ├── mod.rs         # LLM provider trait & types
 │   │   ├── openai.rs      # OpenAI provider
@@ -458,15 +553,26 @@ The `docker-compose.yml` includes volume mounts for `~/.gmv-agent` to persist co
 │   │   ├── mod.rs         # Tool trait, ToolRegistry
 │   │   ├── notes.rs       # Note CRUD
 │   │   ├── calendar.rs    # Google Calendar (OAuth2 + API)
+│   │   ├── gmail.rs       # Gmail integration
 │   │   ├── telegram.rs    # Telegram Bot API
 │   │   ├── whatsapp.rs    # WhatsApp via Twilio
 │   │   └── reminder.rs    # Reminder management
 │   ├── webhooks/
-│   │   └── server.rs      # axum webhook endpoints (Calendar, Gmail, GitHub, Slack)
+│   │   ├── mod.rs
+│   │   └── server.rs      # Webhook endpoints (Calendar, Gmail, GitHub, Slack)
 │   └── jobs/
 │       ├── mod.rs         # Job trait & registry
 │       ├── rsvp_monitor.rs# RSVP change detection
 │       └── reminders.rs   # Meeting reminder notifications
+├── frontend/              # Next.js 15 web dashboard
+│   ├── src/
+│   │   ├── app/           # App Router pages (chat, setup, knowledge, dashboard, settings)
+│   │   ├── components/    # UI components (chat bubbles, layout, shadcn/ui)
+│   │   ├── lib/           # API client, utility helpers, WebSocket manager
+│   │   ├── stores/        # Zustand stores (app, chat, notifications, toast)
+│   │   └── types/         # TypeScript type definitions
+│   ├── package.json
+│   └── tailwind.config.ts
 ├── python/                # Python bindings (PyO3 + maturin)
 │   ├── src/lib.rs
 │   ├── python/gmv_agent/
@@ -484,6 +590,7 @@ The `docker-compose.yml` includes volume mounts for `~/.gmv-agent` to persist co
 │   ├── INSTALLATION.md    # Full installation guide
 │   ├── project_requirement.md
 │   └── setup_and_integration_guide.md
+├── tests/                 # Test suites (Rust, Python, Node.js)
 ├── .github/workflows/
 │   └── ci.yml             # CI/CD: lint, test, cross-compile, publish
 ├── Dockerfile
@@ -506,11 +613,15 @@ All runtime data is stored locally at `~/.gmv-agent/`:
 ├── secrets.enc            # Encrypted secrets vault
 ├── config.toml            # User configuration overrides
 └── data/
-    ├── notes.json         # Saved notes
-    ├── reminders.json     # Saved reminders
-    ├── memory.json        # Agent memory (facts & summaries)
-    ├── google_tokens.json # Google OAuth2 tokens
-    └── history.txt        # REPL command history
+    ├── notes.json                  # Saved notes
+    ├── reminders.json              # Saved reminders
+    ├── memory.json                 # Agent memory (facts & summaries)
+    ├── google_tokens.json          # Google Calendar OAuth2 tokens
+    ├── gmail_tokens.json           # Gmail OAuth2 tokens
+    ├── knowledge_collections.json  # Knowledge base collections
+    ├── knowledge_documents.json    # Knowledge base documents
+    ├── history.txt                 # REPL command history
+    └── conversations/              # Persistent chat conversations (one JSON per conversation)
 ```
 
 ---

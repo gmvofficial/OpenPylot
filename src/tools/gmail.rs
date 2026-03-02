@@ -158,8 +158,37 @@ pub async fn authorize_gmail(
     };
 
     save_gmail_tokens(data_dir, &tokens)?;
+    save_gmail_tokens_to_vault(&tokens);
 
     Ok(())
+}
+
+/// Load Gmail tokens from the encrypted vault as a fallback.
+fn load_gmail_tokens_from_vault() -> Option<GmailTokens> {
+    let vault_path = crate::secrets::default_secrets_path();
+    let vault = crate::secrets::SecretsVault::open(&vault_path, None).ok()?;
+    let access_token = vault.get("google.access_token")?;
+    let refresh_token = vault.get("google.refresh_token")?;
+    let expires_at = vault
+        .get("google.token_expiry")
+        .and_then(|s| s.parse::<DateTime<Utc>>().ok())
+        .unwrap_or_else(|| Utc::now() - chrono::Duration::seconds(1));
+    Some(GmailTokens {
+        access_token,
+        refresh_token,
+        expires_at,
+    })
+}
+
+/// Persist Gmail tokens back to the encrypted vault.
+fn save_gmail_tokens_to_vault(tokens: &GmailTokens) {
+    let vault_path = crate::secrets::default_secrets_path();
+    if let Ok(mut vault) = crate::secrets::SecretsVault::open(&vault_path, None) {
+        let _ = vault.set("google.access_token", &tokens.access_token);
+        let _ = vault.set("google.refresh_token", &tokens.refresh_token);
+        let _ = vault.set("google.token_expiry", &tokens.expires_at.to_rfc3339());
+        let _ = vault.save();
+    }
 }
 
 async fn get_gmail_access_token(
@@ -167,8 +196,13 @@ async fn get_gmail_access_token(
     client_secret: &str,
     data_dir: &PathBuf,
 ) -> Result<String> {
-    let mut tokens =
-        load_gmail_tokens(data_dir).context("Gmail not authorized. Run: gmv-agent setup gmail")?;
+    // Try loading from the JSON file first, then fall back to the vault
+    let mut tokens = match load_gmail_tokens(data_dir) {
+        Some(t) => t,
+        None => load_gmail_tokens_from_vault().context(
+            "Gmail not authorized. Connect Gmail from the Integrations page or run 'gmv-agent setup gmail'.",
+        )?,
+    };
 
     if Utc::now() < tokens.expires_at {
         return Ok(tokens.access_token);
@@ -186,7 +220,19 @@ async fn get_gmail_access_token(
         .send()
         .await?;
 
+    let status = resp.status();
     let body: Value = resp.json().await?;
+
+    if !status.is_success() {
+        let err_desc = body
+            .get("error_description")
+            .and_then(|v| v.as_str())
+            .or_else(|| body.get("error").and_then(|v| v.as_str()))
+            .unwrap_or("unknown error");
+        tracing::error!("Gmail token refresh failed ({}): {}", status, err_desc);
+        anyhow::bail!("Failed to refresh Gmail token (HTTP {}): {}", status.as_u16(), err_desc);
+    }
+
     let new_access_token = body
         .get("access_token")
         .and_then(|v| v.as_str())
@@ -201,6 +247,7 @@ async fn get_gmail_access_token(
     tokens.expires_at = Utc::now() + chrono::Duration::seconds(expires_in);
 
     save_gmail_tokens(data_dir, &tokens)?;
+    save_gmail_tokens_to_vault(&tokens);
 
     Ok(new_access_token)
 }
@@ -489,7 +536,22 @@ impl Tool for GmailSendTool {
             .send()
             .await?;
 
+        let status = resp.status();
         let result: Value = resp.json().await?;
+
+        if !status.is_success() {
+            let api_error = result
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown Gmail API error");
+            tracing::error!("Gmail send failed ({}): {}", status, api_error);
+            return Ok(ToolResult::err(format!(
+                "Failed to send email (HTTP {}): {}",
+                status.as_u16(),
+                api_error
+            )));
+        }
 
         if let Some(id) = result.get("id").and_then(|v| v.as_str()) {
             Ok(ToolResult::ok(format!(
@@ -497,7 +559,7 @@ impl Tool for GmailSendTool {
                 to, id
             )))
         } else {
-            Ok(ToolResult::err("Failed to send email"))
+            Ok(ToolResult::err(format!("Failed to send email: unexpected response: {}", result)))
         }
     }
 }
@@ -610,7 +672,22 @@ impl Tool for GmailReplyTool {
             .send()
             .await?;
 
+        let status = resp.status();
         let result: Value = resp.json().await?;
+
+        if !status.is_success() {
+            let api_error = result
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown Gmail API error");
+            tracing::error!("Gmail reply failed ({}): {}", status, api_error);
+            return Ok(ToolResult::err(format!(
+                "Failed to send reply (HTTP {}): {}",
+                status.as_u16(),
+                api_error
+            )));
+        }
 
         if let Some(id) = result.get("id").and_then(|v| v.as_str()) {
             Ok(ToolResult::ok(format!(
@@ -618,7 +695,7 @@ impl Tool for GmailReplyTool {
                 id
             )))
         } else {
-            Ok(ToolResult::err("Failed to send reply"))
+            Ok(ToolResult::err(format!("Failed to send reply: unexpected response: {}", result)))
         }
     }
 }
@@ -694,7 +771,22 @@ impl Tool for GmailDraftCreateTool {
             .send()
             .await?;
 
+        let status = resp.status();
         let result: Value = resp.json().await?;
+
+        if !status.is_success() {
+            let api_error = result
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown Gmail API error");
+            tracing::error!("Gmail draft create failed ({}): {}", status, api_error);
+            return Ok(ToolResult::err(format!(
+                "Failed to create draft (HTTP {}): {}",
+                status.as_u16(),
+                api_error
+            )));
+        }
 
         if let Some(id) = result.get("id").and_then(|v| v.as_str()) {
             Ok(ToolResult::ok(format!(
@@ -702,7 +794,7 @@ impl Tool for GmailDraftCreateTool {
                 id
             )))
         } else {
-            Ok(ToolResult::err("Failed to create draft"))
+            Ok(ToolResult::err(format!("Failed to create draft: unexpected response: {}", result)))
         }
     }
 }
@@ -752,7 +844,22 @@ impl Tool for GmailDraftSendTool {
             .send()
             .await?;
 
+        let status = resp.status();
         let result: Value = resp.json().await?;
+
+        if !status.is_success() {
+            let api_error = result
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown Gmail API error");
+            tracing::error!("Gmail draft send failed ({}): {}", status, api_error);
+            return Ok(ToolResult::err(format!(
+                "Failed to send draft (HTTP {}): {}",
+                status.as_u16(),
+                api_error
+            )));
+        }
 
         if let Some(id) = result.get("id").and_then(|v| v.as_str()) {
             Ok(ToolResult::ok(format!(
@@ -760,7 +867,7 @@ impl Tool for GmailDraftSendTool {
                 id
             )))
         } else {
-            Ok(ToolResult::err("Failed to send draft"))
+            Ok(ToolResult::err(format!("Failed to send draft: unexpected response: {}", result)))
         }
     }
 }

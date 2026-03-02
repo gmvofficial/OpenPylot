@@ -120,4 +120,30 @@ impl MemoryStore {
 
         ctx
     }
+
+    /// Return a reference to all stored facts.
+    pub fn all_facts(&self) -> &[MemoryFact] {
+        &self.facts
+    }
+
+    /// Update a fact at the given index. Returns true if successful.
+    pub fn update_fact_at(&mut self, index: usize, new_value: &str) -> bool {
+        if let Some(fact) = self.facts.get_mut(index) {
+            fact.value = new_value.to_string();
+            fact.learned_at = Utc::now();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Remove a fact at the given index. Returns true if successful.
+    pub fn remove_fact_at(&mut self, index: usize) -> bool {
+        if index < self.facts.len() {
+            self.facts.remove(index);
+            true
+        } else {
+            false
+        }
+    }
 }

@@ -227,7 +227,7 @@ pub async fn run_oauth_flow(config: &OAuthConfig) -> Result<TokenResponse> {
 ///
 /// The server listens on the specified port for a single GET /callback
 /// request, extracts the authorization code, and shuts down.
-async fn wait_for_callback(port: u16, expected_state: &str) -> Result<String> {
+pub async fn wait_for_callback(port: u16, expected_state: &str) -> Result<String> {
     let (tx, rx) = oneshot::channel::<String>();
     let tx = Arc::new(Mutex::new(Some(tx)));
     let expected = expected_state.to_string();
@@ -322,7 +322,7 @@ async fn wait_for_callback(port: u16, expected_state: &str) -> Result<String> {
 // ── Token exchange ──────────────────────────────────────────────────
 
 /// Exchange an authorization code for access/refresh tokens.
-async fn exchange_code(
+pub async fn exchange_code(
     config: &OAuthConfig,
     code: &str,
     redirect_uri: &str,
@@ -402,7 +402,7 @@ pub async fn refresh_access_token(
 // ── Helpers ─────────────────────────────────────────────────────────
 
 /// Generate a random state string for CSRF protection.
-fn generate_state() -> String {
+pub fn generate_state() -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     let bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();

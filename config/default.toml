@@ -2,22 +2,22 @@
 
 [agent]
 name = "GMV Agent"
-persona = "You are a helpful, concise, and professional personal AI assistant."
+persona = "helpful, concise, professional"
 max_context_messages = 50
 max_tool_iterations = 15
 
 [llm]
 provider = "openai"          # "openai" or "anthropic"
-model = ""                   # Leave empty for provider default
+model = "gpt-4o"
 max_tokens = 4096
-temperature = 0.7
+temperature = 0.6
 
 [storage]
 # Data directory (default: ~/.gmv-agent/data)
 data_dir = ""
 
 [google_calendar]
-enabled = false
+enabled = true
 redirect_port = 8085
 scopes = ["https://www.googleapis.com/auth/calendar"]
 
@@ -25,7 +25,7 @@ scopes = ["https://www.googleapis.com/auth/calendar"]
 enabled = false
 
 [telegram]
-enabled = false
+enabled = true
 
 [whatsapp]
 enabled = false

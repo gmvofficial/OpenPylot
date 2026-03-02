@@ -1,4 +1,5 @@
 mod agent;
+mod api;
 mod config;
 mod context;
 mod init;
@@ -398,6 +399,30 @@ async fn run_telegram_bot(config: &AppConfig) -> Result<()> {
     Ok(())
 }
 
+/// Run Telegram bot polling in the background (for `serve` mode).
+/// The agent is created independently so it runs on its own tokio task.
+async fn run_telegram_bot_background(config: &AppConfig, bot_token: &str) -> Result<()> {
+    use crate::telegram_bot::TelegramBot;
+
+    let (llm, tools) = build_components(config)?;
+    let system_prompt = build_system_prompt(config);
+
+    let mut agent = Agent::new(
+        llm,
+        tools,
+        system_prompt,
+        config.max_context_messages,
+        config.max_tool_iterations,
+        config.data_dir.clone(),
+    )?;
+    agent.set_quiet_mode(true);
+
+    let mut bot = TelegramBot::new(bot_token.to_string());
+    bot.start_polling(&mut agent).await?;
+
+    Ok(())
+}
+
 // ── Interactive REPL ─────────────────────────────────────────────────
 
 async fn run_interactive(config: &AppConfig) -> Result<()> {
@@ -698,13 +723,139 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
         webhook_port.to_string().bright_cyan(),
     );
 
-    let sched = Arc::new(Mutex::new(sched));
+    // ── API + Frontend server ────────────────────────────────────────
+    let api_port: u16 = 3001;
 
-    // Run scheduler and webhook server concurrently
-    tokio::select! {
+    // Build agent for the API server
+    let (llm, tools) = build_components(config)?;
+    let system_prompt = build_system_prompt(config);
+    let mut agent = Agent::new(
+        llm,
+        tools,
+        system_prompt,
+        config.max_context_messages,
+        config.max_tool_iterations,
+        config.data_dir.clone(),
+    )?;
+    agent.set_quiet_mode(true);
+
+    // Determine frontend build directory
+    let frontend_dir = resolve_frontend_dir();
+
+    let sched = Arc::new(Mutex::new(sched));
+    let sched_clone = sched.clone();
+
+    let api_state = api::ApiState {
+        agent: Arc::new(Mutex::new(agent)),
+        config: Arc::new(config.clone()),
+        scheduler: sched_clone,
+        start_time: std::time::Instant::now(),
+        conversations: Arc::new(api::ConversationStore::new(&config.data_dir)),
+    };
+
+    if let Some(ref dir) = frontend_dir {
+        println!(
+            "{} Frontend + API server on http://localhost:{}",
+            "✅".bright_green(),
+            api_port.to_string().bright_cyan(),
+        );
+        println!(
+            "{} Frontend served from {}",
+            "✅".bright_green(),
+            dir.display().to_string().bright_cyan(),
+        );
+    } else {
+        println!(
+            "{} API server on http://localhost:{} (no frontend build found)",
+            "✅".bright_green(),
+            api_port.to_string().bright_cyan(),
+        );
+        println!(
+            "{} To build frontend: cd frontend && npm install && npm run build",
+            "ℹ".bright_blue(),
+        );
+    }
+
+    println!();
+
+    // Start Telegram bot polling alongside other services (if configured)
+    let telegram_handle: Option<tokio::task::JoinHandle<()>> = if config.telegram_enabled {
+        if let Some(ref bot_token) = config.telegram_bot_token {
+            let token = bot_token.clone();
+            let cfg = config.clone();
+            println!(
+                "{} Telegram bot polling started",
+                "✅".bright_green(),
+            );
+            Some(tokio::spawn(async move {
+                match run_telegram_bot_background(&cfg, &token).await {
+                    Ok(_) => tracing::info!("Telegram bot stopped"),
+                    Err(e) => tracing::error!("Telegram bot error: {}", e),
+                }
+            }))
+        } else {
+            tracing::warn!("Telegram enabled but no bot token configured");
+            None
+        }
+    } else {
+        None
+    };
+
+    // Run scheduler, webhook server, and API server concurrently
+    let result = tokio::select! {
         result = AgentScheduler::start(sched) => result,
         result = webhooks::start_webhook_server(webhook_port, webhook_state) => result,
+        result = api::start_api_server(api_port, api_state, frontend_dir) => result,
+    };
+
+    // Clean up Telegram bot task
+    if let Some(handle) = telegram_handle {
+        handle.abort();
     }
+
+    result
+}
+
+// ── Resolve frontend build directory ─────────────────────────────────
+
+fn resolve_frontend_dir() -> Option<std::path::PathBuf> {
+    // 1. Check GMV_FRONTEND_DIR env var
+    if let Ok(dir) = std::env::var("GMV_FRONTEND_DIR") {
+        let p = std::path::PathBuf::from(dir);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    // 2. Check relative to current working directory
+    let cwd = std::path::PathBuf::from("frontend/out");
+    if cwd.exists() {
+        return Some(cwd);
+    }
+
+    // 3. Check relative to executable location
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            let p = exe_dir.join("frontend/out");
+            if p.exists() {
+                return Some(p);
+            }
+            // Also check two levels up (target/release/ → project root)
+            let p = exe_dir.join("../../frontend/out");
+            if p.exists() {
+                return Some(p.canonicalize().ok()?);
+            }
+        }
+    }
+
+    // 4. Check in GMV home directory
+    let home = crate::secrets::gmv_home_dir();
+    let p = home.join("frontend/out");
+    if p.exists() {
+        return Some(p);
+    }
+
+    None
 }
 
 // ── Jobs command ─────────────────────────────────────────────────────

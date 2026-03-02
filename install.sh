@@ -133,12 +133,54 @@ build_from_source() {
         || git clone --depth 1 "https://github.com/${REPO}.git" "$tmp_dir/gmv-agent"
 
     cd "$tmp_dir/gmv-agent"
+
+    # Build frontend if Node.js is available
+    build_frontend "$tmp_dir/gmv-agent/frontend" 2>/dev/null || true
+
     cargo build --release
 
     mkdir -p "$BIN_DIR"
     cp target/release/gmv-agent "$BIN_DIR/gmv-agent"
     chmod +x "$BIN_DIR/gmv-agent"
     success "Built and installed to ${BIN_DIR}/gmv-agent"
+}
+
+# ─── Build Frontend ──────────────────────────────────────────────────────────
+build_frontend() {
+    local frontend_dir="$1"
+
+    # Check for Node.js / npm
+    if ! command -v node &>/dev/null || ! command -v npm &>/dev/null; then
+        warn "Node.js not found. Skipping frontend build."
+        info "Install Node.js 18+ and run: cd frontend && npm ci && npm run build"
+        return 0
+    fi
+
+    local node_version
+    node_version=$(node --version | sed 's/v//' | cut -d. -f1)
+    if [[ "$node_version" -lt 18 ]]; then
+        warn "Node.js 18+ required (found v${node_version}). Skipping frontend build."
+        return 0
+    fi
+
+    info "Building frontend..."
+    if [[ -d "$frontend_dir" && -f "$frontend_dir/package.json" ]]; then
+        cd "$frontend_dir"
+        npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+        npm run build
+        cd - >/dev/null
+
+        # Copy built frontend to installation directory
+        if [[ -d "$frontend_dir/out" ]]; then
+            mkdir -p "$PREFIX/frontend/out"
+            cp -r "$frontend_dir/out/"* "$PREFIX/frontend/out/"
+            success "Frontend built and installed to ${PREFIX}/frontend/out"
+        else
+            warn "Frontend build did not produce output directory."
+        fi
+    else
+        warn "Frontend directory not found at $frontend_dir"
+    fi
 }
 
 # ─── Setup Directories ───────────────────────────────────────────────────────
@@ -223,8 +265,12 @@ print_summary() {
     echo -e "  ${BOLD}Quick start:${NC}"
     echo -e "    gmv-agent chat \"Hello!\"        # One-shot query"
     echo -e "    gmv-agent                       # Interactive mode"
+    echo -e "    gmv-agent serve --foreground    # Start web UI + scheduler"
     echo -e "    gmv-agent init                  # Re-run setup wizard"
     echo -e "    gmv-agent doctor                # Check configuration"
+    echo ""
+    echo -e "  ${BOLD}Web UI:${NC}"
+    echo -e "    Run 'gmv-agent serve' and open http://localhost:3001"
     echo ""
 }
 
@@ -241,6 +287,7 @@ main() {
     resolve_version
     setup_directories
     install_binary
+    build_frontend "$PREFIX/src/frontend" 2>/dev/null || true
     configure_path
     run_init
     print_summary

@@ -134,6 +134,7 @@ pub async fn authorize_google(
     };
 
     save_tokens(data_dir, &tokens)?;
+    save_tokens_to_vault(&tokens);
     println!("✅ Google Calendar authorized and tokens saved!\n");
 
     Ok(())
@@ -159,15 +160,47 @@ fn extract_code_from_request(request: &str) -> Option<String> {
     None
 }
 
+/// Load tokens from the encrypted vault as a fallback when the JSON file doesn't exist.
+fn load_tokens_from_vault(client_id: &str, client_secret: &str) -> Option<GoogleTokens> {
+    let vault_path = crate::secrets::default_secrets_path();
+    let vault = crate::secrets::SecretsVault::open(&vault_path, None).ok()?;
+    let access_token = vault.get("google.access_token")?;
+    let refresh_token = vault.get("google.refresh_token")?;
+    let expires_at = vault
+        .get("google.token_expiry")
+        .and_then(|s| s.parse::<DateTime<Utc>>().ok())
+        .unwrap_or_else(|| Utc::now() - chrono::Duration::seconds(1)); // treat as expired if no expiry
+    Some(GoogleTokens {
+        access_token,
+        refresh_token,
+        expires_at,
+    })
+}
+
+/// Persist tokens back to the encrypted vault so other components stay in sync.
+fn save_tokens_to_vault(tokens: &GoogleTokens) {
+    let vault_path = crate::secrets::default_secrets_path();
+    if let Ok(mut vault) = crate::secrets::SecretsVault::open(&vault_path, None) {
+        let _ = vault.set("google.access_token", &tokens.access_token);
+        let _ = vault.set("google.refresh_token", &tokens.refresh_token);
+        let _ = vault.set("google.token_expiry", &tokens.expires_at.to_rfc3339());
+        let _ = vault.save();
+    }
+}
+
 /// Get a valid access token, refreshing if needed.
 async fn get_access_token(
     data_dir: &PathBuf,
     client_id: &str,
     client_secret: &str,
 ) -> Result<String> {
-    let mut tokens = load_tokens(data_dir).context(
-        "Google Calendar not authorized. Run 'gmv-agent setup google-calendar' first.",
-    )?;
+    // Try loading from the JSON file first, then fall back to the vault
+    let mut tokens = match load_tokens(data_dir) {
+        Some(t) => t,
+        None => load_tokens_from_vault(client_id, client_secret).context(
+            "Google Calendar not authorized. Connect Google Calendar from the Integrations page or run 'gmv-agent setup google-calendar'.",
+        )?,
+    };
 
     // Check if token is expired (with 60s buffer)
     if Utc::now() >= tokens.expires_at - chrono::Duration::seconds(60) {
@@ -185,7 +218,19 @@ async fn get_access_token(
             .await
             .context("Failed to refresh Google token")?;
 
+        let status = resp.status();
         let body: Value = resp.json().await?;
+
+        if !status.is_success() {
+            let err_desc = body
+                .get("error_description")
+                .and_then(|v| v.as_str())
+                .or_else(|| body.get("error").and_then(|v| v.as_str()))
+                .unwrap_or("unknown error");
+            tracing::error!("Calendar token refresh failed ({}): {}", status, err_desc);
+            anyhow::bail!("Failed to refresh Google Calendar token (HTTP {}): {}", status.as_u16(), err_desc);
+        }
+
         tokens.access_token = body["access_token"]
             .as_str()
             .context("Failed to get refreshed access_token")?
@@ -194,6 +239,7 @@ async fn get_access_token(
         tokens.expires_at = Utc::now() + chrono::Duration::seconds(expires_in);
 
         save_tokens(data_dir, &tokens)?;
+        save_tokens_to_vault(&tokens);
     }
 
     Ok(tokens.access_token)

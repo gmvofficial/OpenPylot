@@ -24,6 +24,7 @@ uuid = { version = "1", features = ["v4"] }
 rustyline = "14"
 colored = "2"
 toml = "0.8"
+toml_edit = "0.22"
 dotenvy = "0.15"
 dirs = "6"
 tracing = "0.1"
@@ -46,9 +47,9 @@ base64 = "0.22"
 # Scheduler
 cron = "0.13"
 
-# Webhook server
-axum = "0.8"
-tower-http = { version = "0.6", features = ["cors"] }
+# Webhook server & API server
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
 
 [profile.release]
 opt-level = 3
