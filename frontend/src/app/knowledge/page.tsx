@@ -17,7 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import type { Collection, Document, SearchResult } from "@/types";
 import { apiClient } from "@/lib/api";
 import { useToastStore } from "@/stores/toast";
-import { formatRelativeTime, formatBytes } from "@/lib/utils";
+import { formatRelativeTime, formatBytes, getApiBaseUrl } from "@/lib/utils";
 import {
   BookOpen,
   Search,
@@ -179,6 +179,7 @@ function UploadModal({
   const [content, setContent] = useState("");
   const [source, setSource] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [extracting, setExtracting] = useState(false);
   const addToast = useToastStore((s) => s.addToast);
 
   const handleUpload = async () => {
@@ -200,17 +201,95 @@ function UploadModal({
     }
   };
 
-  const handleFileRead = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileRead = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    
     if (!title.trim()) setTitle(file.name);
     if (!source.trim()) setSource("file-upload");
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = ev.target?.result;
-      if (typeof text === "string") setContent(text);
-    };
-    reader.readAsText(file);
+
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+    const supportedExtensions = ['pdf', 'docx', 'doc', 'txt', 'md', 'csv', 'json', 'xml', 'html', 'xlsx', 'xls', 'xlsb', 'png', 'jpg', 'jpeg', 'webp', 'bmp', 'tiff', 'tif', 'gif'];
+    
+    // Use document extraction API for all supported formats
+    if (supportedExtensions.includes(fileExtension || '')) {
+      try {
+        setExtracting(true);
+        const formData = new FormData();
+        formData.append('file', file);
+        if (fileExtension) {
+          formData.append('document_type', fileExtension);
+        }
+
+        // Connect directly to backend (bypass Next.js proxy for large file uploads)
+        const backendUrl = process.env.NODE_ENV === 'development' 
+          ? 'http://localhost:3001'
+          : getApiBaseUrl();
+        
+        console.log('Uploading to:', `${backendUrl}/api/knowledge/extract-document`);
+        console.log('File:', file.name, 'Type:', fileExtension, 'Size:', file.size);
+        
+        const response = await fetch(`${backendUrl}/api/knowledge/extract-document`, {
+          method: 'POST',
+          body: formData,
+          // Add a longer timeout for large files
+          signal: AbortSignal.timeout(60000), // 60 seconds
+        });
+
+        console.log('Response status:', response.status, response.statusText);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Extraction failed:', response.status, errorText);
+          throw new Error(`Failed to extract document: ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        console.log('Extraction result:', result);
+        
+        // Backend wraps response in {success: true, data: {...}}
+        const data = result.data || result;
+        
+        if (!data.content) {
+          throw new Error('No content extracted from document');
+        }
+        
+        setContent(data.content);
+        const contentLength = data.content.length;
+        const fileSize = data.metadata?.file_size || data.file_size || 0;
+        addToast({ 
+          variant: "success", 
+          title: "Document extracted", 
+          description: `Extracted ${contentLength.toLocaleString()} characters from ${formatBytes(fileSize)} file: ${file.name}` 
+        });
+      } catch (error) {
+        console.error('Document extraction error:', error);
+        addToast({
+          variant: "error",
+          title: "Extraction failed",
+          description: error instanceof Error ? error.message : "Failed to extract document content",
+        });
+        // Fallback to text reading for .txt and .md files
+        if (fileExtension === 'txt' || fileExtension === 'md') {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const text = ev.target?.result;
+            if (typeof text === "string") setContent(text);
+          };
+          reader.readAsText(file);
+        }
+      } finally {
+        setExtracting(false);
+      }
+    } else {
+      // For unsupported files, try reading as text
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const text = ev.target?.result;
+        if (typeof text === "string") setContent(text);
+      };
+      reader.readAsText(file);
+    }
   };
 
   return (
@@ -250,30 +329,37 @@ function UploadModal({
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium text-foreground">Content *</label>
               <label className="cursor-pointer text-xs text-accent hover:underline">
-                <input type="file" className="hidden" accept=".txt,.md,.csv,.json,.log" onChange={handleFileRead} />
+                <input 
+                  type="file" 
+                  className="hidden" 
+                  accept=".pdf,.docx,.doc,.txt,.md,.csv,.json,.xml,.html,.xlsx,.xls,.xlsb,.png,.jpg,.jpeg,.webp,.bmp,.tiff,.tif,.gif" 
+                  onChange={handleFileRead} 
+                  disabled={extracting}
+                />
                 <Upload className="inline mr-1 h-3 w-3" />
-                Import from file
+                {extracting ? "Extracting..." : "Import from file"}
               </label>
             </div>
             <Textarea
               className="min-h-[200px] font-mono text-sm"
-              placeholder="Paste or type document content here..."
+              placeholder="Paste or type document content here, or import a file (PDF, DOCX, TXT, CSV, JSON, XML, HTML, Excel , PNG,JPG,JPEG)..."
               value={content}
               onChange={(e) => setContent(e.target.value)}
+              disabled={extracting}
             />
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-1">
-            <Button variant="ghost" onClick={onClose} disabled={uploading}>
+            <Button variant="ghost" onClick={onClose} disabled={uploading || extracting}>
               Cancel
             </Button>
-            <Button onClick={handleUpload} disabled={!title.trim() || !content.trim() || uploading}>
-              {uploading ? (
+            <Button onClick={handleUpload} disabled={!title.trim() || !content.trim() || uploading || extracting}>
+              {uploading || extracting ? (
                 <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Upload className="mr-2 h-4 w-4" />
               )}
-              {uploading ? "Uploading..." : "Upload"}
+              {extracting ? "Extracting..." : uploading ? "Uploading..." : "Upload"}
             </Button>
           </div>
         </CardContent>

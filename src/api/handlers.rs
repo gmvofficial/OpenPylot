@@ -72,9 +72,7 @@ pub struct AgentStatusResponse {
     version: String,
 }
 
-pub async fn get_status(
-    State(state): State<ApiState>,
-) -> Json<ApiResponse<AgentStatusResponse>> {
+pub async fn get_status(State(state): State<ApiState>) -> Json<ApiResponse<AgentStatusResponse>> {
     let elapsed = state.start_time.elapsed();
     let hours = elapsed.as_secs() / 3600;
     let mins = (elapsed.as_secs() % 3600) / 60;
@@ -245,9 +243,7 @@ pub struct ToolInfo {
     category: String,
 }
 
-pub async fn list_tools(
-    State(state): State<ApiState>,
-) -> Json<ApiResponse<Vec<ToolInfo>>> {
+pub async fn list_tools(State(state): State<ApiState>) -> Json<ApiResponse<Vec<ToolInfo>>> {
     let agent = state.agent.lock().await;
     let names = agent.tool_names();
 
@@ -295,31 +291,58 @@ fn check_vault_integration_status() -> Vec<IntegrationInfo> {
     let vault_path = crate::secrets::default_secrets_path();
     let vault = crate::secrets::SecretsVault::open(&vault_path, None).ok();
 
-    let get = |key: &str| -> Option<String> {
-        vault.as_ref().and_then(|v| v.get(key))
-    };
+    let get = |key: &str| -> Option<String> { vault.as_ref().and_then(|v| v.get(key)) };
 
     let now = chrono::Utc::now().to_rfc3339();
 
-    let google_has_creds = get("google.client_id").is_some() && get("google.client_secret").is_some();
-    let google_has_token = get("google.access_token").is_some() || get("google.refresh_token").is_some();
+    let google_has_creds =
+        get("google.client_id").is_some() && get("google.client_secret").is_some();
+    let google_has_token =
+        get("google.access_token").is_some() || get("google.refresh_token").is_some();
     let google_connected = google_has_creds && google_has_token;
 
     vec![
         IntegrationInfo {
             service: "google_calendar".into(),
-            status: if google_connected { "connected" } else { "disconnected" }.into(),
-            connected_at: if google_connected { Some(now.clone()) } else { None },
+            status: if google_connected {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if google_connected {
+                Some(now.clone())
+            } else {
+                None
+            },
         },
         IntegrationInfo {
             service: "gmail".into(),
-            status: if google_connected { "connected" } else { "disconnected" }.into(),
-            connected_at: if google_connected { Some(now.clone()) } else { None },
+            status: if google_connected {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if google_connected {
+                Some(now.clone())
+            } else {
+                None
+            },
         },
         IntegrationInfo {
             service: "telegram".into(),
-            status: if get("telegram.bot_token").is_some() { "connected" } else { "disconnected" }.into(),
-            connected_at: if get("telegram.bot_token").is_some() { Some(now.clone()) } else { None },
+            status: if get("telegram.bot_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("telegram.bot_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
         },
         IntegrationInfo {
             service: "whatsapp".into(),
@@ -327,18 +350,41 @@ fn check_vault_integration_status() -> Vec<IntegrationInfo> {
                 "connected"
             } else {
                 "disconnected"
-            }.into(),
-            connected_at: if get("twilio.account_sid").is_some() { Some(now.clone()) } else { None },
+            }
+            .into(),
+            connected_at: if get("twilio.account_sid").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
         },
         IntegrationInfo {
             service: "github".into(),
-            status: if get("github.access_token").is_some() { "connected" } else { "disconnected" }.into(),
-            connected_at: if get("github.access_token").is_some() { Some(now.clone()) } else { None },
+            status: if get("github.access_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("github.access_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
         },
         IntegrationInfo {
             service: "slack".into(),
-            status: if get("slack.bot_token").is_some() { "connected" } else { "disconnected" }.into(),
-            connected_at: if get("slack.bot_token").is_some() { Some(now) } else { None },
+            status: if get("slack.bot_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("slack.bot_token").is_some() {
+                Some(now)
+            } else {
+                None
+            },
         },
     ]
 }
@@ -391,18 +437,29 @@ pub async fn connect_integration(
 
             if let Some(token) = bot_token {
                 let vault_path = crate::secrets::default_secrets_path();
-                let mut vault = crate::secrets::SecretsVault::open(&vault_path, None)
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Vault error: {e}")))?;
-                vault.set("telegram.bot_token", token)
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}")))?;
+                let mut vault =
+                    crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
+                        err(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Vault error: {e}"),
+                        )
+                    })?;
+                vault.set("telegram.bot_token", token).map_err(|e| {
+                    err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}"))
+                })?;
                 if let Some(cid) = chat_id {
                     if !cid.is_empty() {
-                        vault.set("telegram.default_chat_id", cid)
-                            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}")))?;
+                        vault.set("telegram.default_chat_id", cid).map_err(|e| {
+                            err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}"))
+                        })?;
                     }
                 }
-                vault.save()
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}")))?;
+                vault.save().map_err(|e| {
+                    err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Save error: {e}"),
+                    )
+                })?;
                 update_toml_config(&[("telegram.enabled", "true")]);
                 tracing::info!("Telegram integration connected via API");
 
@@ -452,20 +509,32 @@ pub async fn connect_integration(
 
             if let (Some(sid), Some(token)) = (account_sid, auth_token) {
                 let vault_path = crate::secrets::default_secrets_path();
-                let mut vault = crate::secrets::SecretsVault::open(&vault_path, None)
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Vault error: {e}")))?;
-                vault.set("twilio.account_sid", sid)
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}")))?;
-                vault.set("twilio.auth_token", token)
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}")))?;
+                let mut vault =
+                    crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
+                        err(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Vault error: {e}"),
+                        )
+                    })?;
+                vault.set("twilio.account_sid", sid).map_err(|e| {
+                    err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}"))
+                })?;
+                vault.set("twilio.auth_token", token).map_err(|e| {
+                    err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}"))
+                })?;
                 if let Some(from) = whatsapp_from {
                     if !from.is_empty() {
-                        vault.set("twilio.whatsapp_from", from)
-                            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}")))?;
+                        vault.set("twilio.whatsapp_from", from).map_err(|e| {
+                            err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}"))
+                        })?;
                     }
                 }
-                vault.save()
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}")))?;
+                vault.save().map_err(|e| {
+                    err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Save error: {e}"),
+                    )
+                })?;
                 update_toml_config(&[("whatsapp.enabled", "true")]);
                 tracing::info!("WhatsApp integration connected via API");
 
@@ -513,21 +582,31 @@ pub async fn connect_integration(
 
             // Allow passing client credentials in the request body
             let vault_path = crate::secrets::default_secrets_path();
-            let mut vault = crate::secrets::SecretsVault::open(&vault_path, None)
-                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Vault error: {e}")))?;
+            let mut vault = crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Vault error: {e}"),
+                )
+            })?;
 
             // If credentials are provided in body, store them first
             if let Some(creds) = creds {
                 if let Some(cid) = creds.get("client_id").and_then(|v| v.as_str()) {
-                    vault.set("google.client_id", cid)
-                        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}")))?;
+                    vault.set("google.client_id", cid).map_err(|e| {
+                        err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}"))
+                    })?;
                 }
                 if let Some(cs) = creds.get("client_secret").and_then(|v| v.as_str()) {
-                    vault.set("google.client_secret", cs)
-                        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}")))?;
+                    vault.set("google.client_secret", cs).map_err(|e| {
+                        err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}"))
+                    })?;
                 }
-                vault.save()
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}")))?;
+                vault.save().map_err(|e| {
+                    err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Save error: {e}"),
+                    )
+                })?;
             }
 
             let client_id = vault.get("google.client_id");
@@ -537,7 +616,8 @@ pub async fn connect_integration(
                 // Start OAuth flow
                 let scopes = crate::oauth::default_google_scopes();
                 let redirect_port = state.config.google_redirect_port;
-                let oauth_config = crate::oauth::google_oauth_config(&cid, &cs, scopes, redirect_port);
+                let oauth_config =
+                    crate::oauth::google_oauth_config(&cid, &cs, scopes, redirect_port);
 
                 let redirect_uri = format!("http://localhost:{}/callback", redirect_port);
                 let state_param = crate::oauth::generate_state();
@@ -558,8 +638,13 @@ pub async fn connect_integration(
                 let service_clone = service.clone();
                 tokio::spawn(async move {
                     match handle_google_oauth_callback(
-                        &oauth_clone, &state_clone, &vault_path_clone, &service_clone,
-                    ).await {
+                        &oauth_clone,
+                        &state_clone,
+                        &vault_path_clone,
+                        &service_clone,
+                    )
+                    .await
+                    {
                         Ok(_) => tracing::info!("{} OAuth completed successfully", service_clone),
                         Err(e) => tracing::error!("{} OAuth failed: {}", service_clone, e),
                     }
@@ -599,16 +684,28 @@ pub async fn connect_integration(
 
         "github" => {
             let creds = body.as_ref().and_then(|b| b.credentials.as_ref());
-            let token = creds.and_then(|c| c.get("access_token")).and_then(|v| v.as_str());
+            let token = creds
+                .and_then(|c| c.get("access_token"))
+                .and_then(|v| v.as_str());
 
             if let Some(token) = token {
                 let vault_path = crate::secrets::default_secrets_path();
-                let mut vault = crate::secrets::SecretsVault::open(&vault_path, None)
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Vault error: {e}")))?;
-                vault.set("github.access_token", token)
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}")))?;
-                vault.save()
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}")))?;
+                let mut vault =
+                    crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
+                        err(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Vault error: {e}"),
+                        )
+                    })?;
+                vault.set("github.access_token", token).map_err(|e| {
+                    err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}"))
+                })?;
+                vault.save().map_err(|e| {
+                    err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Save error: {e}"),
+                    )
+                })?;
                 tracing::info!("GitHub integration connected via API");
 
                 Ok(ok(ConnectResult {
@@ -622,31 +719,41 @@ pub async fn connect_integration(
                     auth_url: None,
                     message: "GitHub requires a personal access token".into(),
                     requires_credentials: true,
-                    credential_fields: vec![
-                        CredentialField {
-                            name: "access_token".into(),
-                            label: "Personal Access Token".into(),
-                            field_type: "password".into(),
-                            required: true,
-                            placeholder: "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx".into(),
-                        },
-                    ],
+                    credential_fields: vec![CredentialField {
+                        name: "access_token".into(),
+                        label: "Personal Access Token".into(),
+                        field_type: "password".into(),
+                        required: true,
+                        placeholder: "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx".into(),
+                    }],
                 }))
             }
         }
 
         "slack" => {
             let creds = body.as_ref().and_then(|b| b.credentials.as_ref());
-            let token = creds.and_then(|c| c.get("bot_token")).and_then(|v| v.as_str());
+            let token = creds
+                .and_then(|c| c.get("bot_token"))
+                .and_then(|v| v.as_str());
 
             if let Some(token) = token {
                 let vault_path = crate::secrets::default_secrets_path();
-                let mut vault = crate::secrets::SecretsVault::open(&vault_path, None)
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Vault error: {e}")))?;
-                vault.set("slack.bot_token", token)
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}")))?;
-                vault.save()
-                    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}")))?;
+                let mut vault =
+                    crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
+                        err(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Vault error: {e}"),
+                        )
+                    })?;
+                vault.set("slack.bot_token", token).map_err(|e| {
+                    err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}"))
+                })?;
+                vault.save().map_err(|e| {
+                    err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("Save error: {e}"),
+                    )
+                })?;
                 tracing::info!("Slack integration connected via API");
 
                 Ok(ok(ConnectResult {
@@ -660,20 +767,21 @@ pub async fn connect_integration(
                     auth_url: None,
                     message: "Slack requires a bot token".into(),
                     requires_credentials: true,
-                    credential_fields: vec![
-                        CredentialField {
-                            name: "bot_token".into(),
-                            label: "Slack Bot Token".into(),
-                            field_type: "password".into(),
-                            required: true,
-                            placeholder: "xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx".into(),
-                        },
-                    ],
+                    credential_fields: vec![CredentialField {
+                        name: "bot_token".into(),
+                        label: "Slack Bot Token".into(),
+                        field_type: "password".into(),
+                        required: true,
+                        placeholder: "xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx".into(),
+                    }],
                 }))
             }
         }
 
-        _ => Err(err(StatusCode::BAD_REQUEST, format!("Unknown service: {}", service))),
+        _ => Err(err(
+            StatusCode::BAD_REQUEST,
+            format!("Unknown service: {}", service),
+        )),
     }
 }
 
@@ -741,16 +849,24 @@ pub async fn disconnect_integration(
     State(_state): State<ApiState>,
 ) -> Result<Json<ApiResponse<bool>>, (StatusCode, Json<ApiError>)> {
     let vault_path = crate::secrets::default_secrets_path();
-    let mut vault = crate::secrets::SecretsVault::open(&vault_path, None)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Vault error: {e}")))?;
+    let mut vault = crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Vault error: {e}"),
+        )
+    })?;
 
     match service.as_str() {
         "google_calendar" | "gmail" => {
             let _ = vault.delete("google.access_token");
             let _ = vault.delete("google.refresh_token");
             // Keep client_id/secret so user can re-connect without re-entering them
-            vault.save()
-                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}")))?;
+            vault.save().map_err(|e| {
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Save error: {e}"),
+                )
+            })?;
             update_toml_config(&[
                 ("google_calendar.enabled", "false"),
                 ("gmail.enabled", "false"),
@@ -759,28 +875,49 @@ pub async fn disconnect_integration(
         "telegram" => {
             let _ = vault.delete("telegram.bot_token");
             let _ = vault.delete("telegram.default_chat_id");
-            vault.save()
-                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}")))?;
+            vault.save().map_err(|e| {
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Save error: {e}"),
+                )
+            })?;
             update_toml_config(&[("telegram.enabled", "false")]);
         }
         "whatsapp" => {
             let _ = vault.delete("twilio.account_sid");
             let _ = vault.delete("twilio.auth_token");
-            vault.save()
-                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}")))?;
+            vault.save().map_err(|e| {
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Save error: {e}"),
+                )
+            })?;
             update_toml_config(&[("whatsapp.enabled", "false")]);
         }
         "github" => {
             let _ = vault.delete("github.access_token");
-            vault.save()
-                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}")))?;
+            vault.save().map_err(|e| {
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Save error: {e}"),
+                )
+            })?;
         }
         "slack" => {
             let _ = vault.delete("slack.bot_token");
-            vault.save()
-                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {e}")))?;
+            vault.save().map_err(|e| {
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Save error: {e}"),
+                )
+            })?;
         }
-        _ => return Err(err(StatusCode::BAD_REQUEST, format!("Unknown service: {}", service))),
+        _ => {
+            return Err(err(
+                StatusCode::BAD_REQUEST,
+                format!("Unknown service: {}", service),
+            ))
+        }
     }
 
     tracing::info!("Integration disconnected: {}", service);
@@ -798,8 +935,12 @@ pub async fn test_integration(
     State(_state): State<ApiState>,
 ) -> Result<Json<ApiResponse<TestResult>>, (StatusCode, Json<ApiError>)> {
     let vault_path = crate::secrets::default_secrets_path();
-    let vault = crate::secrets::SecretsVault::open(&vault_path, None)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Vault error: {e}")))?;
+    let vault = crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Vault error: {e}"),
+        )
+    })?;
 
     match service.as_str() {
         "telegram" => {
@@ -808,7 +949,8 @@ pub async fn test_integration(
                 match reqwest::get(&url).await {
                     Ok(resp) if resp.status().is_success() => {
                         let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                        let bot_name = body.get("result")
+                        let bot_name = body
+                            .get("result")
                             .and_then(|r| r.get("username"))
                             .and_then(|u| u.as_str())
                             .unwrap_or("unknown");
@@ -835,16 +977,17 @@ pub async fn test_integration(
         }
 
         "whatsapp" => {
-            if let (Some(sid), Some(token)) = (vault.get("twilio.account_sid"), vault.get("twilio.auth_token")) {
+            if let (Some(sid), Some(token)) = (
+                vault.get("twilio.account_sid"),
+                vault.get("twilio.auth_token"),
+            ) {
                 let url = format!("https://api.twilio.com/2010-04-01/Accounts/{}.json", sid);
                 let client = reqwest::Client::new();
                 match client.get(&url).basic_auth(&sid, Some(&token)).send().await {
-                    Ok(resp) if resp.status().is_success() => {
-                        Ok(ok(TestResult {
-                            healthy: true,
-                            details: format!("Twilio account {} is active", sid),
-                        }))
-                    }
+                    Ok(resp) if resp.status().is_success() => Ok(ok(TestResult {
+                        healthy: true,
+                        details: format!("Twilio account {} is active", sid),
+                    })),
                     Ok(resp) => Ok(ok(TestResult {
                         healthy: false,
                         details: format!("Twilio API returned HTTP {}", resp.status()),
@@ -866,13 +1009,16 @@ pub async fn test_integration(
             if let Some(token) = vault.get("google.access_token") {
                 let url = "https://www.googleapis.com/oauth2/v1/tokeninfo";
                 let client = reqwest::Client::new();
-                match client.get(url).query(&[("access_token", &token)]).send().await {
-                    Ok(resp) if resp.status().is_success() => {
-                        Ok(ok(TestResult {
-                            healthy: true,
-                            details: "Google OAuth token is valid".into(),
-                        }))
-                    }
+                match client
+                    .get(url)
+                    .query(&[("access_token", &token)])
+                    .send()
+                    .await
+                {
+                    Ok(resp) if resp.status().is_success() => Ok(ok(TestResult {
+                        healthy: true,
+                        details: "Google OAuth token is valid".into(),
+                    })),
                     _ => {
                         // Try refresh if we have a refresh token
                         if vault.get("google.refresh_token").is_some() {
@@ -899,14 +1045,19 @@ pub async fn test_integration(
         "github" => {
             if let Some(token) = vault.get("github.access_token") {
                 let client = reqwest::Client::new();
-                match client.get("https://api.github.com/user")
+                match client
+                    .get("https://api.github.com/user")
                     .header("Authorization", format!("Bearer {}", token))
                     .header("User-Agent", "gmv-agent")
-                    .send().await
+                    .send()
+                    .await
                 {
                     Ok(resp) if resp.status().is_success() => {
                         let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                        let login = body.get("login").and_then(|l| l.as_str()).unwrap_or("unknown");
+                        let login = body
+                            .get("login")
+                            .and_then(|l| l.as_str())
+                            .unwrap_or("unknown");
                         Ok(ok(TestResult {
                             healthy: true,
                             details: format!("Authenticated as {}", login),
@@ -922,26 +1073,43 @@ pub async fn test_integration(
                     })),
                 }
             } else {
-                Ok(ok(TestResult { healthy: false, details: "No token configured".into() }))
+                Ok(ok(TestResult {
+                    healthy: false,
+                    details: "No token configured".into(),
+                }))
             }
         }
 
         "slack" => {
             if let Some(token) = vault.get("slack.bot_token") {
                 let client = reqwest::Client::new();
-                match client.post("https://slack.com/api/auth.test")
+                match client
+                    .post("https://slack.com/api/auth.test")
                     .header("Authorization", format!("Bearer {}", token))
-                    .send().await
+                    .send()
+                    .await
                 {
                     Ok(resp) if resp.status().is_success() => {
                         let body: serde_json::Value = resp.json().await.unwrap_or_default();
                         let ok_val = body.get("ok").and_then(|o| o.as_bool()).unwrap_or(false);
                         if ok_val {
-                            let team = body.get("team").and_then(|t| t.as_str()).unwrap_or("unknown");
-                            Ok(ok(TestResult { healthy: true, details: format!("Connected to {}", team) }))
+                            let team = body
+                                .get("team")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("unknown");
+                            Ok(ok(TestResult {
+                                healthy: true,
+                                details: format!("Connected to {}", team),
+                            }))
                         } else {
-                            let error = body.get("error").and_then(|e| e.as_str()).unwrap_or("unknown");
-                            Ok(ok(TestResult { healthy: false, details: format!("Slack error: {}", error) }))
+                            let error = body
+                                .get("error")
+                                .and_then(|e| e.as_str())
+                                .unwrap_or("unknown");
+                            Ok(ok(TestResult {
+                                healthy: false,
+                                details: format!("Slack error: {}", error),
+                            }))
                         }
                     }
                     Ok(resp) => Ok(ok(TestResult {
@@ -954,11 +1122,17 @@ pub async fn test_integration(
                     })),
                 }
             } else {
-                Ok(ok(TestResult { healthy: false, details: "No bot token configured".into() }))
+                Ok(ok(TestResult {
+                    healthy: false,
+                    details: "No bot token configured".into(),
+                }))
             }
         }
 
-        _ => Err(err(StatusCode::BAD_REQUEST, format!("Unknown service: {}", service))),
+        _ => Err(err(
+            StatusCode::BAD_REQUEST,
+            format!("Unknown service: {}", service),
+        )),
     }
 }
 
@@ -975,9 +1149,7 @@ pub struct AgentSettings {
     max_tool_iterations: usize,
 }
 
-pub async fn get_settings(
-    State(state): State<ApiState>,
-) -> Json<ApiResponse<AgentSettings>> {
+pub async fn get_settings(State(state): State<ApiState>) -> Json<ApiResponse<AgentSettings>> {
     let config = &state.config;
     ok(AgentSettings {
         agent_name: config.agent_name.clone(),
@@ -1054,10 +1226,7 @@ pub async fn update_memory_fact(
     State(state): State<ApiState>,
     Json(body): Json<serde_json::Value>,
 ) -> Json<ApiResponse<bool>> {
-    let content = body
-        .get("content")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let content = body.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
     let data_dir = &state.config.data_dir;
     let mut memory = crate::memory::MemoryStore::load(data_dir).unwrap_or_default();
@@ -1107,9 +1276,7 @@ pub struct JobResponse {
     next_run: Option<String>,
 }
 
-pub async fn list_jobs(
-    State(state): State<ApiState>,
-) -> Json<ApiResponse<Vec<JobResponse>>> {
+pub async fn list_jobs(State(state): State<ApiState>) -> Json<ApiResponse<Vec<JobResponse>>> {
     let sched = state.scheduler.lock().await;
     let jobs: Vec<JobResponse> = sched
         .list_jobs()
@@ -1254,18 +1421,19 @@ pub async fn get_setup_status(
     // Also check vault for the most current state
     let vault_path = crate::secrets::default_secrets_path();
     let vault = crate::secrets::SecretsVault::open(&vault_path, None).ok();
-    let vault_has = |key: &str| -> bool {
-        vault.as_ref().and_then(|v| v.get(key)).is_some()
-    };
+    let vault_has = |key: &str| -> bool { vault.as_ref().and_then(|v| v.get(key)).is_some() };
 
     let llm_configured = config.openai_api_key.is_some()
         || config.anthropic_api_key.is_some()
         || vault_has("llm.openai.api_key")
         || vault_has("llm.anthropic.api_key");
-    let telegram_configured = config.telegram_bot_token.is_some() || vault_has("telegram.bot_token");
-    let google_configured = (config.google_client_id.is_some() && config.google_client_secret.is_some())
+    let telegram_configured =
+        config.telegram_bot_token.is_some() || vault_has("telegram.bot_token");
+    let google_configured = (config.google_client_id.is_some()
+        && config.google_client_secret.is_some())
         || (vault_has("google.client_id") && vault_has("google.client_secret"));
-    let whatsapp_configured = (config.twilio_account_sid.is_some() && config.twilio_auth_token.is_some())
+    let whatsapp_configured = (config.twilio_account_sid.is_some()
+        && config.twilio_auth_token.is_some())
         || (vault_has("twilio.account_sid") && vault_has("twilio.auth_token"));
     let agent_name_set = config.agent_name != "GMV Agent" && !config.agent_name.is_empty();
 
@@ -1290,8 +1458,12 @@ pub async fn setup_llm(
     Json(body): Json<SetupLlmRequest>,
 ) -> Result<Json<ApiResponse<bool>>, (StatusCode, Json<ApiError>)> {
     let vault_path = crate::secrets::default_secrets_path();
-    let mut vault = crate::secrets::SecretsVault::open(&vault_path, None)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Vault error: {}", e)))?;
+    let mut vault = crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Vault error: {}", e),
+        )
+    })?;
 
     // Store API key in secrets vault
     if let Some(ref api_key) = body.api_key {
@@ -1305,15 +1477,15 @@ pub async fn setup_llm(
             .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set key: {}", e)))?;
     }
 
-    vault
-        .save()
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save vault: {}", e)))?;
+    vault.save().map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Save vault: {}", e),
+        )
+    })?;
 
     // Also update TOML config for provider/model
-    update_toml_config(&[
-        ("llm.provider", &body.provider),
-        ("llm.model", &body.model),
-    ]);
+    update_toml_config(&[("llm.provider", &body.provider), ("llm.model", &body.model)]);
 
     tracing::info!(
         "Setup: LLM configured — provider={}, model={}",
@@ -1347,7 +1519,10 @@ pub async fn setup_identity(
     }
     update_toml_config(&updates);
 
-    tracing::info!("Setup: Agent identity configured — name={}", body.agent_name);
+    tracing::info!(
+        "Setup: Agent identity configured — name={}",
+        body.agent_name
+    );
     ok(true)
 }
 
@@ -1362,12 +1537,21 @@ pub async fn setup_telegram(
     Json(body): Json<SetupTelegramRequest>,
 ) -> Result<Json<ApiResponse<bool>>, (StatusCode, Json<ApiError>)> {
     let vault_path = crate::secrets::default_secrets_path();
-    let mut vault = crate::secrets::SecretsVault::open(&vault_path, None)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Vault error: {}", e)))?;
+    let mut vault = crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Vault error: {}", e),
+        )
+    })?;
 
     vault
         .set("telegram.bot_token", &body.bot_token)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set token: {}", e)))?;
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Set token: {}", e),
+            )
+        })?;
 
     if let Some(ref chat_id) = body.chat_id {
         if !chat_id.is_empty() {
@@ -1382,9 +1566,12 @@ pub async fn setup_telegram(
         }
     }
 
-    vault
-        .save()
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save vault: {}", e)))?;
+    vault.save().map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Save vault: {}", e),
+        )
+    })?;
 
     // Enable telegram in TOML
     update_toml_config(&[("telegram.enabled", "true")]);
@@ -1476,8 +1663,7 @@ fn update_toml_config(updates: &[(&str, &str)]) {
 
             // Set value (try bool first, then string)
             if *value == "true" || *value == "false" {
-                doc[section][field] =
-                    toml_edit::value(*value == "true");
+                doc[section][field] = toml_edit::value(*value == "true");
             } else {
                 doc[section][field] = toml_edit::value(*value);
             }
@@ -1540,19 +1726,23 @@ pub async fn list_collections(
     State(state): State<ApiState>,
 ) -> Json<ApiResponse<Vec<CollectionResponse>>> {
     let data_dir = &state.config.data_dir;
-    let collections: Vec<KnowledgeCollection> = load_json_vec(&knowledge_collections_path(data_dir));
+    let collections: Vec<KnowledgeCollection> =
+        load_json_vec(&knowledge_collections_path(data_dir));
     let documents: Vec<KnowledgeDocument> = load_json_vec(&knowledge_documents_path(data_dir));
 
-    let result: Vec<CollectionResponse> = collections.iter().map(|c| {
-        let doc_count = documents.iter().filter(|d| d.collection_id == c.id).count();
-        CollectionResponse {
-            id: c.id.clone(),
-            name: c.name.clone(),
-            description: c.description.clone(),
-            document_count: doc_count,
-            created_at: c.created_at.clone(),
-        }
-    }).collect();
+    let result: Vec<CollectionResponse> = collections
+        .iter()
+        .map(|c| {
+            let doc_count = documents.iter().filter(|d| d.collection_id == c.id).count();
+            CollectionResponse {
+                id: c.id.clone(),
+                name: c.name.clone(),
+                description: c.description.clone(),
+                document_count: doc_count,
+                created_at: c.created_at.clone(),
+            }
+        })
+        .collect();
 
     ok(result)
 }
@@ -1625,10 +1815,15 @@ pub async fn list_documents(
     let data_dir = &state.config.data_dir;
     let documents: Vec<KnowledgeDocument> = load_json_vec(&knowledge_documents_path(data_dir));
 
-    let result: Vec<DocumentResponse> = documents.iter()
+    let result: Vec<DocumentResponse> = documents
+        .iter()
         .filter(|d| d.collection_id == collection_id)
         .map(|d| {
-            let chunks = if d.content.is_empty() { 0 } else { (d.content.len() / 500) + 1 };
+            let chunks = if d.content.is_empty() {
+                0
+            } else {
+                (d.content.len() / 500) + 1
+            };
             DocumentResponse {
                 id: d.id.clone(),
                 collection_id: d.collection_id.clone(),
@@ -1653,10 +1848,15 @@ pub async fn list_all_documents(
     let documents: Vec<KnowledgeDocument> = load_json_vec(&knowledge_documents_path(data_dir));
     let collection_id = params.get("collection_id");
 
-    let result: Vec<DocumentResponse> = documents.iter()
+    let result: Vec<DocumentResponse> = documents
+        .iter()
         .filter(|d| collection_id.map_or(true, |cid| &d.collection_id == cid))
         .map(|d| {
-            let chunks = if d.content.is_empty() { 0 } else { (d.content.len() / 500) + 1 };
+            let chunks = if d.content.is_empty() {
+                0
+            } else {
+                (d.content.len() / 500) + 1
+            };
             DocumentResponse {
                 id: d.id.clone(),
                 collection_id: d.collection_id.clone(),
@@ -1716,8 +1916,13 @@ pub async fn search_knowledge(
     let query_lower = body.query.to_lowercase();
     let query_words: Vec<&str> = query_lower.split_whitespace().collect();
 
-    let mut results: Vec<SearchResultResponse> = documents.iter()
-        .filter(|d| body.collection_id.as_ref().map_or(true, |cid| &d.collection_id == cid))
+    let mut results: Vec<SearchResultResponse> = documents
+        .iter()
+        .filter(|d| {
+            body.collection_id
+                .as_ref()
+                .map_or(true, |cid| &d.collection_id == cid)
+        })
         .filter_map(|d| {
             let content_lower = d.content.to_lowercase();
             let title_lower = d.title.to_lowercase();
@@ -1734,7 +1939,8 @@ pub async fn search_knowledge(
 
             if score > 0.0 {
                 // Find best snippet around first match
-                let snippet_start = content_lower.find(&query_words[0])
+                let snippet_start = content_lower
+                    .find(&query_words[0])
                     .unwrap_or(0)
                     .saturating_sub(100);
                 let snippet_end = (snippet_start + 300).min(d.content.len());
@@ -1753,7 +1959,11 @@ pub async fn search_knowledge(
         })
         .collect();
 
-    results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results.truncate(limit);
 
     ok(results)
@@ -1785,7 +1995,11 @@ pub async fn upload_document(
         created_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    let chunks = if new_doc.content.is_empty() { 0 } else { (new_doc.content.len() / 500) + 1 };
+    let chunks = if new_doc.content.is_empty() {
+        0
+    } else {
+        (new_doc.content.len() / 500) + 1
+    };
     let size = new_doc.content.len();
 
     documents.push(new_doc.clone());
@@ -1817,23 +2031,47 @@ pub async fn setup_whatsapp(
     Json(body): Json<SetupWhatsAppRequest>,
 ) -> Result<Json<ApiResponse<bool>>, (StatusCode, Json<ApiError>)> {
     let vault_path = crate::secrets::default_secrets_path();
-    let mut vault = crate::secrets::SecretsVault::open(&vault_path, None)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Vault error: {}", e)))?;
+    let mut vault = crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Vault error: {}", e),
+        )
+    })?;
 
-    vault.set("twilio.account_sid", &body.account_sid)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {}", e)))?;
-    vault.set("twilio.auth_token", &body.auth_token)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {}", e)))?;
+    vault
+        .set("twilio.account_sid", &body.account_sid)
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Set error: {}", e),
+            )
+        })?;
+    vault
+        .set("twilio.auth_token", &body.auth_token)
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Set error: {}", e),
+            )
+        })?;
 
     if let Some(ref from) = body.whatsapp_from {
         if !from.is_empty() {
-            vault.set("twilio.whatsapp_from", from)
-                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {}", e)))?;
+            vault.set("twilio.whatsapp_from", from).map_err(|e| {
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Set error: {}", e),
+                )
+            })?;
         }
     }
 
-    vault.save()
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {}", e)))?;
+    vault.save().map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Save error: {}", e),
+        )
+    })?;
 
     update_toml_config(&[("whatsapp.enabled", "true")]);
 
@@ -1853,17 +2091,138 @@ pub async fn setup_google(
     Json(body): Json<SetupGoogleRequest>,
 ) -> Result<Json<ApiResponse<bool>>, (StatusCode, Json<ApiError>)> {
     let vault_path = crate::secrets::default_secrets_path();
-    let mut vault = crate::secrets::SecretsVault::open(&vault_path, None)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Vault error: {}", e)))?;
+    let mut vault = crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Vault error: {}", e),
+        )
+    })?;
 
-    vault.set("google.client_id", &body.client_id)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {}", e)))?;
-    vault.set("google.client_secret", &body.client_secret)
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {}", e)))?;
+    vault
+        .set("google.client_id", &body.client_id)
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Set error: {}", e),
+            )
+        })?;
+    vault
+        .set("google.client_secret", &body.client_secret)
+        .map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Set error: {}", e),
+            )
+        })?;
 
-    vault.save()
-        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("Save error: {}", e)))?;
+    vault.save().map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Save error: {}", e),
+        )
+    })?;
 
     tracing::info!("Setup: Google client credentials configured");
     Ok(ok(true))
+}
+
+// ── Document Extraction ──────────────────────────────────────────────
+
+use crate::tools::document_loader::{detect_document_type, DocumentContent, DocumentLoader};
+use axum::extract::Multipart;
+
+/// Better multipart file upload handler using axum's Multipart extractor
+pub async fn extract_document_multipart(
+    State(_state): State<ApiState>,
+    mut multipart: Multipart,
+) -> Result<Json<ApiResponse<DocumentContent>>, (StatusCode, Json<ApiError>)> {
+    tracing::info!("Received document extraction request");
+    let loader = DocumentLoader::new();
+
+    let mut file_bytes: Option<Vec<u8>> = None;
+    let mut filename: Option<String> = None;
+    let mut document_type: Option<String> = None;
+
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        tracing::error!("Failed to read multipart field: {}", e);
+        err(
+            StatusCode::BAD_REQUEST,
+            format!("Failed to read multipart field: {}", e),
+        )
+    })? {
+        let field_name = field.name().map(|s| s.to_string());
+        tracing::debug!("Processing field: {:?}", field_name);
+
+        match field_name.as_deref() {
+            Some("file") => {
+                filename = field.file_name().map(|s| s.to_string());
+                tracing::info!("Received file: {:?}", filename);
+                let data = field.bytes().await.map_err(|e| {
+                    tracing::error!("Failed to read file data: {}", e);
+                    err(
+                        StatusCode::BAD_REQUEST,
+                        format!("Failed to read file data: {}", e),
+                    )
+                })?;
+                tracing::info!("File data size: {} bytes", data.len());
+                file_bytes = Some(data.to_vec());
+            }
+            Some("document_type") => {
+                let data = field.text().await.map_err(|e| {
+                    tracing::error!("Failed to read document_type: {}", e);
+                    err(
+                        StatusCode::BAD_REQUEST,
+                        format!("Failed to read document_type: {}", e),
+                    )
+                })?;
+                tracing::info!("Document type specified: {}", data);
+                document_type = Some(data);
+            }
+            _ => {
+                tracing::warn!("Skipping unknown field: {:?}", field_name);
+            }
+        }
+    }
+
+    let file_bytes = file_bytes.ok_or_else(|| {
+        tracing::error!("No file uploaded in request");
+        err(StatusCode::BAD_REQUEST, "No file uploaded".to_string())
+    })?;
+
+    let filename = filename.unwrap_or_else(|| "unknown".to_string());
+    tracing::info!("Processing file: {} ({} bytes)", filename, file_bytes.len());
+
+    let doc_type = document_type
+        .or_else(|| detect_document_type(&filename))
+        .ok_or_else(|| {
+            tracing::error!("Could not determine document type for: {}", filename);
+            err(
+                StatusCode::BAD_REQUEST,
+                format!("Could not determine document type for '{}'. Please specify document_type or use a file with a recognized extension.", filename),
+            )
+        })?;
+
+    tracing::info!("Detected document type: {}", doc_type);
+
+    tracing::info!("Starting document extraction...");
+    match loader
+        .extract_from_bytes(&file_bytes, &filename, &doc_type)
+        .await
+    {
+        Ok(content) => {
+            tracing::info!(
+                "Document extracted successfully: {} ({} bytes of content)",
+                filename,
+                content.content.len()
+            );
+            Ok(ok(content))
+        }
+        Err(e) => {
+            tracing::error!("Failed to extract document {}: {}", filename, e);
+            Err(err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to extract document: {}", e),
+            ))
+        }
+    }
 }

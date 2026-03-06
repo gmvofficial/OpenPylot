@@ -2,6 +2,7 @@ pub mod handlers;
 pub mod ws;
 
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{delete, get, patch, post},
     Router,
 };
@@ -22,7 +23,7 @@ use crate::scheduler::AgentScheduler;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredMessage {
     pub id: String,
-    pub role: String,      // "user" | "assistant"
+    pub role: String, // "user" | "assistant"
     pub content: String,
     pub timestamp: String,
 }
@@ -186,10 +187,7 @@ pub fn api_router(state: ApiState, frontend_dir: Option<PathBuf>) -> Router {
         .route("/logs", get(handlers::get_logs))
         // Knowledge
         .route("/knowledge/collections", get(handlers::list_collections))
-        .route(
-            "/knowledge/collections",
-            post(handlers::create_collection),
-        )
+        .route("/knowledge/collections", post(handlers::create_collection))
         .route(
             "/knowledge/collections/{id}",
             delete(handlers::delete_collection),
@@ -198,19 +196,18 @@ pub fn api_router(state: ApiState, frontend_dir: Option<PathBuf>) -> Router {
             "/knowledge/collections/{id}/documents",
             get(handlers::list_documents),
         )
-        .route(
-            "/knowledge/documents",
-            get(handlers::list_all_documents),
-        )
-        .route(
-            "/knowledge/documents",
-            post(handlers::upload_document),
-        )
+        .route("/knowledge/documents", get(handlers::list_all_documents))
+        .route("/knowledge/documents", post(handlers::upload_document))
         .route(
             "/knowledge/documents/{id}",
             delete(handlers::delete_document),
         )
         .route("/knowledge/search", post(handlers::search_knowledge))
+        // Document extraction (preview before upload)
+        .route(
+            "/knowledge/extract-document",
+            post(handlers::extract_document_multipart),
+        )
         // Setup wizard
         .route("/setup/status", get(handlers::get_setup_status))
         .route("/setup/llm", post(handlers::setup_llm))
@@ -224,11 +221,15 @@ pub fn api_router(state: ApiState, frontend_dir: Option<PathBuf>) -> Router {
         .route("/chat", get(ws::ws_chat_handler))
         .route("/notifications", get(ws::ws_notifications_handler));
 
+    // Set body size limit to 100MB for large file uploads
+    let body_limit = DefaultBodyLimit::max(100 * 1024 * 1024); // 100MB
+
     let mut app = Router::new()
         .nest("/api", api_routes)
         .nest("/ws", ws_routes)
         .with_state(state)
-        .layer(cors);
+        .layer(cors)
+        .layer(body_limit);
 
     // Serve static frontend files if the build directory exists
     if let Some(dir) = frontend_dir {

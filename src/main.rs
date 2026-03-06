@@ -31,6 +31,7 @@ use crate::terminal::Terminal;
 use crate::tools::calendar::{
     authorize_google, CalendarConfig, CreateCalendarEvent, CreateMeeting, ListCalendarEvents,
 };
+use crate::tools::document_loader::DocumentLoaderTool;
 use crate::tools::gmail::{
     authorize_gmail, GmailConfig, GmailDraftCreateTool, GmailDraftGetTool, GmailDraftListTool,
     GmailDraftSendTool, GmailGetTool, GmailReplyTool, GmailSearchTool, GmailSendTool,
@@ -463,6 +464,10 @@ fn build_tool_registry(config: &AppConfig) -> ToolRegistry {
     let mut tools = ToolRegistry::new();
     let data_dir = config.data_dir.clone();
 
+    // -- Document Loader (always available) --
+    tools.register(Box::new(DocumentLoaderTool::new()));
+    tracing::info!("Document loader tool registered");
+
     // -- Notes (always available) --
     tools.register(Box::new(CreateNote::new(data_dir.clone())));
     tools.register(Box::new(ListNotes::new(data_dir.clone())));
@@ -551,7 +556,9 @@ fn build_components(config: &AppConfig) -> Result<(Box<dyn LlmProvider>, ToolReg
             let api_key = config
                 .anthropic_api_key
                 .as_ref()
-                .context("ANTHROPIC_API_KEY not set. Run 'gmv-agent init' or add it to your .env file.")?
+                .context(
+                    "ANTHROPIC_API_KEY not set. Run 'gmv-agent init' or add it to your .env file.",
+                )?
                 .clone();
             Box::new(AnthropicProvider::new(
                 api_key,
@@ -563,7 +570,9 @@ fn build_components(config: &AppConfig) -> Result<(Box<dyn LlmProvider>, ToolReg
             let api_key = config
                 .openai_api_key
                 .as_ref()
-                .context("OPENAI_API_KEY not set. Run 'gmv-agent init' or add it to your .env file.")?
+                .context(
+                    "OPENAI_API_KEY not set. Run 'gmv-agent init' or add it to your .env file.",
+                )?
                 .clone();
             Box::new(OpenAIProvider::new(
                 api_key,
@@ -684,11 +693,7 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
         "Summarize unread emails",
         "0 9,13,17 * * *",
         false, // disabled by default — requires Gmail integration
-        || {
-            Box::pin(async {
-                Ok("Email digest generated".to_string())
-            })
-        },
+        || Box::pin(async { Ok("Email digest generated".to_string()) }),
     )?;
 
     let job_count = sched.list_jobs().len();
@@ -783,10 +788,7 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
         if let Some(ref bot_token) = config.telegram_bot_token {
             let token = bot_token.clone();
             let cfg = config.clone();
-            println!(
-                "{} Telegram bot polling started",
-                "✅".bright_green(),
-            );
+            println!("{} Telegram bot polling started", "✅".bright_green(),);
             Some(tokio::spawn(async move {
                 match run_telegram_bot_background(&cfg, &token).await {
                     Ok(_) => tracing::info!("Telegram bot stopped"),
@@ -1015,11 +1017,7 @@ fn run_remove_service(service: &str) -> Result<()> {
     }
 
     vault.save()?;
-    println!(
-        "{} Removed '{}' credentials",
-        "✅".bright_green(),
-        service
-    );
+    println!("{} Removed '{}' credentials", "✅".bright_green(), service);
 
     Ok(())
 }
@@ -1035,7 +1033,10 @@ fn run_config_command(action: ConfigAction) -> Result<()> {
             println!("  Agent name:    {}", config.agent_name.bright_cyan());
             println!("  LLM provider:  {}", config.llm_provider.bright_cyan());
             println!("  LLM model:     {}", config.llm_model.bright_cyan());
-            println!("  Data dir:      {}", config.data_dir.display().to_string().bright_cyan());
+            println!(
+                "  Data dir:      {}",
+                config.data_dir.display().to_string().bright_cyan()
+            );
             println!();
             println!("  {}", "Integrations:".bright_blue());
             println!(
@@ -1105,7 +1106,11 @@ fn run_logs(scheduler: bool) -> Result<()> {
     // Read and display last 50 lines
     let content = std::fs::read_to_string(&log_file)?;
     let lines: Vec<&str> = content.lines().collect();
-    let start = if lines.len() > 50 { lines.len() - 50 } else { 0 };
+    let start = if lines.len() > 50 {
+        lines.len() - 50
+    } else {
+        0
+    };
 
     println!(
         "{} Showing last {} lines of {}",
@@ -1133,6 +1138,7 @@ fn build_system_prompt(config: &AppConfig) -> String {
 {persona}
 
 You have access to the following tool categories:
+- **Document Loader**: Load and extract text content from documents (PDF, DOCX, TXT, JSON, CSV, XML, HTML, Excel) from local file paths or URLs
 - **Notes**: Create, list, search, and delete personal notes
 - **Reminders**: Set, list, and complete reminders
 - **Google Calendar**: Create events, list upcoming events, and create meetings with Google Meet links
@@ -1142,19 +1148,21 @@ You have access to the following tool categories:
 
 Guidelines:
 1. Use the available tools to help the user accomplish tasks.
-2. When creating calendar events, clarify the timezone if ambiguous. Use ISO 8601 format for datetimes.
-3. Before sending messages (Telegram/WhatsApp) or emails (Gmail), confirm the recipient and content with the user unless they're explicit.
-4. For notes, use descriptive titles and appropriate tags for easy retrieval.
-5. Be concise in responses but thorough in tool usage.
-6. If a tool is not configured (e.g., missing API key), inform the user and suggest how to set it up.
-7. When listing items (notes, events, reminders, emails), format them clearly using simple numbered lists.
-8. When formatting responses, use plain text with simple formatting. Avoid mixing underscores (_) and asterisks (*) in the same response as they can cause display issues.
-9. Current date and time: {datetime}
-10. If the user asks you to remember something, create a note for it.
-11. For meetings, always try to include a Google Meet link by using the create_meeting tool.
-12. Always confirm with the user before sending emails or drafts via Gmail.
-13. The create_meeting tool automatically sends email invitations to all attendees — no additional notification step is needed.
-14. After a tool succeeds, report the result to the user. Do NOT keep calling tools unnecessarily."#,
+2. **When users ask you to analyze, read, or load documents**, use the `load_document` tool with the file path and document type (pdf, docx, txt, json, csv, xml, html, xlsx, xls, xlsb). You CAN access local files on the user's system.
+3. When creating calendar events, clarify the timezone if ambiguous. Use ISO 8601 format for datetimes.
+3. When creating calendar events, clarify the timezone if ambiguous. Use ISO 8601 format for datetimes.
+4. Before sending messages (Telegram/WhatsApp) or emails (Gmail), confirm the recipient and content with the user unless they're explicit.
+5. For notes, use descriptive titles and appropriate tags for easy retrieval.
+6. Be concise in responses but thorough in tool usage.
+7. If a tool is not configured (e.g., missing API key), inform the user and suggest how to set it up.
+8. When listing items (notes, events, reminders, emails), format them clearly using simple numbered lists.
+9. When formatting responses, use plain text with simple formatting. Avoid mixing underscores (_) and asterisks (*) in the same response as they can cause display issues.
+10. Current date and time: {datetime}
+11. If the user asks you to remember something, create a note for it.
+12. For meetings, always try to include a Google Meet link by using the create_meeting tool.
+13. Always confirm with the user before sending emails or drafts via Gmail.
+14. The create_meeting tool automatically sends email invitations to all attendees — no additional notification step is needed.
+15. After a tool succeeds, report the result to the user. Do NOT keep calling tools unnecessarily."#,
         name = config.agent_name,
         persona = config.agent_persona,
         datetime = now.format("%Y-%m-%d %H:%M:%S %Z"),

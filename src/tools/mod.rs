@@ -1,4 +1,5 @@
 pub mod calendar;
+pub mod document_loader;
 pub mod gmail;
 pub mod notes;
 pub mod reminder;

@@ -118,15 +118,19 @@ impl Agent {
                                     } else {
                                         "❌".to_string()
                                     };
+                                    
+                                    // Safely truncate output respecting character boundaries
+                                    let display_output = if result.output.chars().count() > 200 {
+                                        let truncated: String = result.output.chars().take(200).collect();
+                                        format!("{}...", truncated)
+                                    } else {
+                                        result.output.clone()
+                                    };
+                                    
                                     println!(
                                         "  {} {}",
                                         status,
-                                        if result.output.len() > 200 {
-                                            format!("{}...", &result.output[..200])
-                                        } else {
-                                            result.output.clone()
-                                        }
-                                        .dimmed()
+                                        display_output.dimmed()
                                     );
                                 }
                                 result
