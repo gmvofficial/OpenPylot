@@ -14,6 +14,12 @@ import {
   Search,
   Trash2,
   Bot,
+  Share2,
+  BarChart3,
+  Settings,
+  Wrench,
+  Brain,
+  Users,
 } from "lucide-react";
 import { cn, truncate, formatRelativeTime } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,9 +32,14 @@ import { useAppStore } from "@/stores/app";
 
 const navItems = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
+  { href: "/social", label: "Social Media", icon: Share2 },
+  { href: "/agents", label: "Sub-Agents", icon: Users },
+  { href: "/memory", label: "Memory", icon: Brain },
   { href: "/setup", label: "Integrations", icon: Settings2 },
   { href: "/knowledge", label: "Knowledge Base", icon: BookOpen },
+  { href: "/tools", label: "Tools & Skills", icon: Wrench },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function Sidebar() {
@@ -62,7 +73,7 @@ export function Sidebar() {
         {!sidebarCollapsed && (
           <div className="flex-1 min-w-0">
             <h1 className="text-sm font-semibold text-foreground truncate">
-              GMV Agent
+              OpenPylot
             </h1>
             {status && (
               <p className="text-[10px] text-foreground-muted truncate">

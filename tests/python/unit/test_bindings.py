@@ -1,12 +1,12 @@
-"""Unit tests for the Python GMV Agent bindings.
+"""Unit tests for the Python Pylot bindings.
 
 Tests Config construction, defaults, property setters, repr masking, and
-GMVAgent instantiation from Config. These tests do NOT require a running
+PylotAgent instantiation from Config. These tests do NOT require a running
 LLM or external service — they only verify the binding layer.
 """
 
 import pytest
-from gmv_agent import Config, GMVAgent
+from pylot import Config, PylotAgent
 
 
 # ── Config defaults ───────────────────────────────────────────────────
@@ -114,12 +114,12 @@ class TestConfigRepr:
         assert "None" in r
 
 
-# ── GMVAgent from Config ──────────────────────────────────────────────
+# ── PylotAgent from Config ──────────────────────────────────────────────
 
-class TestGMVAgentFromConfig:
+class TestPylotAgentFromConfig:
     def test_create_agent_from_default_config(self):
         cfg = Config()
-        agent = GMVAgent(cfg)
+        agent = PylotAgent(cfg)
         assert agent is not None
 
     def test_create_agent_from_custom_config(self):
@@ -128,9 +128,9 @@ class TestGMVAgentFromConfig:
             llm_model="claude-sonnet-4-20250514",
             anthropic_api_key="sk-ant-test",
         )
-        agent = GMVAgent(cfg)
+        agent = PylotAgent(cfg)
         assert agent is not None
 
     def test_from_config_missing_file_raises(self):
         with pytest.raises(Exception):
-            GMVAgent.from_config("/nonexistent/path/secrets.enc")
+            PylotAgent.from_config("/nonexistent/path/secrets.enc")

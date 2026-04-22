@@ -3,13 +3,13 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "gmv-agent"
-version = "0.2.0"
-description = "GMV Agent — A Rust-powered personal AI assistant (Python bindings)"
+name = "openpylot"
+version = "0.3.0"
+description = "OpenPylot — A Rust-powered personal AI assistant (Python bindings)"
 license = "MIT"
 requires-python = ">=3.9"
 readme = "README.md"
-keywords = ["ai", "assistant", "agent", "personal-assistant", "llm"]
+keywords = ["ai", "assistant", "agent", "personal-assistant", "llm", "pylot"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -25,7 +25,7 @@ classifiers = [
 ]
 
 [project.scripts]
-gmv-agent = "gmv_agent.cli:main"
+pylot = "pylot.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "pytest-asyncio>=0.21"]
@@ -36,4 +36,4 @@ testpaths = ["../tests/python"]
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
-module-name = "gmv_agent._native"
+module-name = "pylot._native"

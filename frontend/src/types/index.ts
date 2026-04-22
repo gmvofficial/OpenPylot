@@ -1,4 +1,4 @@
-// ── TypeScript type definitions for the GMV Agent Frontend ──────────
+// ── TypeScript type definitions for the OpenPylot Frontend ─────────
 
 // ── Chat types ──────────────────────────────────────────────────────
 
@@ -177,6 +177,86 @@ export interface ToolDefinition {
   enabled: boolean;
 }
 
+// ── Skill types ─────────────────────────────────────────────────────
+
+export interface Skill {
+  name: string;
+  description: string;
+  category: string;
+  triggers?: string[];
+  examples?: string[];
+  enabled?: boolean;
+}
+
+// ── Agent Preset types ──────────────────────────────────────────────
+
+export interface AgentPreset {
+  name: string;
+  description: string;
+  agent_type: string;
+  system_prompt?: string;
+  model_override?: string | null;
+  allowed_tools?: string[] | null;
+  timeout_secs: number;
+  max_iterations: number;
+  source: "bundled" | "local" | "workspace" | string;
+  source_path?: string | null;
+}
+
+// ── Social Media types ──────────────────────────────────────────────
+
+export interface SocialPost {
+  id: string;
+  platform: string;
+  content: string;
+  hashtags?: string[];
+  status: string;
+  campaign_id?: string;
+  published_at?: string;
+  scheduled_at?: string;
+  analytics?: {
+    likes: number;
+    shares: number;
+    comments: number;
+    impressions: number;
+  };
+}
+
+export interface SocialCampaign {
+  id: string;
+  name: string;
+  description?: string;
+  platforms: string[];
+  post_count?: number;
+  status?: string;
+  created_at?: string;
+}
+
+// ── Learning types ──────────────────────────────────────────────────
+
+export interface LearningRule {
+  id: string;
+  rule: string;
+  source?: string;
+  confidence?: number;
+  created_at?: string;
+}
+
+// ── MCP types ───────────────────────────────────────────────────────
+
+export interface McpServer {
+  name: string;
+  url: string;
+  status: string;
+  tools?: string[];
+}
+
+export interface McpTool {
+  name: string;
+  description: string;
+  server: string;
+}
+
 // ── Notification types ──────────────────────────────────────────────
 
 export type NotificationType =
@@ -216,7 +296,7 @@ export type WSServerMessage =
 
 export type WSNotificationMessage =
   | { type: "rsvp_update"; eventId: string; attendee: string; status: string }
-  | { type: "reminder_due"; reminderId: string; title: string }
+  | { type: "reminder_due"; reminderId?: string; title: string; message?: string; conversationId?: string }
   | { type: "integration_status"; service: string; status: string; message: string }
   | { type: "job_completed"; job: string; result: string }
   | { type: "integration_connected"; service: string };

@@ -2,8 +2,8 @@
 ///
 /// Validates message management, trimming, and system prompt handling.
 
-use gmv_agent::context::ConversationContext;
-use gmv_agent::llm::Message;
+use pylot::context::ConversationContext;
+use pylot::llm::Message;
 
 // ── Construction ─────────────────────────────────────────────────────
 
@@ -30,12 +30,12 @@ fn test_push_increments_len() {
 
 #[test]
 fn test_build_messages_starts_with_system() {
-    let mut ctx = ConversationContext::new("You are GMV Agent.".into(), 50);
+    let mut ctx = ConversationContext::new("You are Pylot.".into(), 50);
     ctx.push(Message::user("hi"));
 
     let msgs = ctx.build_messages();
     assert_eq!(msgs.len(), 2); // system + user
-    assert_eq!(msgs[0].content, "You are GMV Agent.");
+    assert_eq!(msgs[0].content, "You are Pylot.");
     assert_eq!(msgs[1].content, "hi");
 }
 

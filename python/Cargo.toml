@@ -1,14 +1,14 @@
 [package]
-name = "gmv-agent-python-bindings"
-version = "0.2.0"
+name = "pylot-python-bindings"
+version = "0.3.0"
 edition = "2021"
-description = "Python bindings for GMV Agent — A Rust-powered personal AI assistant"
+description = "Python bindings for OpenPylot — A Rust-powered personal AI assistant"
 license = "MIT"
-repository = "https://github.com/GMV-AI/gmv-agent"
+repository = "https://github.com/openpylot/pylot"
 publish = false
 
 [lib]
-name = "gmv_agent"
+name = "pylot"
 crate-type = ["cdylib"]
 
 [dependencies]
@@ -20,4 +20,4 @@ anyhow = "1"
 dirs = "6"
 
 # Reference the main workspace crate (path-based for development)
-gmv-agent-core = { path = "..", package = "gmv-agent" }
+pylot-core = { path = "..", package = "pylot" }

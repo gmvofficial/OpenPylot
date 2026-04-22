@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::llm::{LlmProvider, LlmResponse, Message, Role, ToolCall};
+use crate::streaming::{StreamEvent, StreamSender};
 use crate::tools::ToolDefinition;
 
 // ── Anthropic API types ──────────────────────────────────────────────
@@ -18,6 +19,8 @@ struct AnthropicRequest {
     messages: Vec<AnthropicMessage>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     tools: Vec<AnthropicTool>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    stream: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -202,6 +205,7 @@ impl LlmProvider for AnthropicProvider {
             system,
             messages: api_messages,
             tools: Self::convert_tools(tools),
+            stream: false,
         };
 
         let response = self
@@ -266,5 +270,178 @@ impl LlmProvider for AnthropicProvider {
 
     fn model(&self) -> &str {
         &self.model
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
+    }
+
+    async fn chat_stream(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDefinition],
+        stream_tx: StreamSender,
+    ) -> Result<LlmResponse> {
+        let (system, api_messages) = Self::convert_messages(messages);
+
+        let request = AnthropicRequest {
+            model: self.model.clone(),
+            max_tokens: self.max_tokens,
+            system,
+            messages: api_messages,
+            tools: Self::convert_tools(tools),
+            stream: true,
+        };
+
+        let response = self
+            .client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to send streaming request to Anthropic")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Anthropic streaming API error ({}): {}", status, body);
+        }
+
+        let mut full_text = String::new();
+        let mut thinking_text = String::new();
+        let mut tool_calls: Vec<ToolCall> = Vec::new();
+        let mut current_tool_id = String::new();
+        let mut current_tool_name = String::new();
+        let mut current_tool_input = String::new();
+        let mut in_tool_use = false;
+
+        use futures_util::StreamExt;
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.context("Stream chunk error")?;
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+            while let Some(line_end) = buffer.find('\n') {
+                let line = buffer[..line_end].trim().to_string();
+                buffer = buffer[line_end + 1..].to_string();
+
+                if line.is_empty() {
+                    continue;
+                }
+
+                // Parse SSE event type
+                if line.starts_with("event: ") {
+                    continue; // We parse data lines
+                }
+
+                if let Some(data) = line.strip_prefix("data: ") {
+                    if let Ok(parsed) = serde_json::from_str::<Value>(data) {
+                        let event_type = parsed.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+                        match event_type {
+                            "content_block_start" => {
+                                if let Some(block) = parsed.get("content_block") {
+                                    let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                    if block_type == "tool_use" {
+                                        in_tool_use = true;
+                                        current_tool_id = block.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
+                                        current_tool_name = block.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                                        current_tool_input.clear();
+                                        let _ = stream_tx.send(StreamEvent::ToolUseStart {
+                                            id: current_tool_id.clone(),
+                                            name: current_tool_name.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                            "content_block_delta" => {
+                                if let Some(delta) = parsed.get("delta") {
+                                    let delta_type = delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                    match delta_type {
+                                        "text_delta" => {
+                                            if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
+                                                full_text.push_str(text);
+                                                let _ = stream_tx.send(StreamEvent::TextDelta {
+                                                    text: text.to_string(),
+                                                });
+                                            }
+                                        }
+                                        "thinking_delta" => {
+                                            if let Some(thinking) = delta.get("thinking").and_then(|t| t.as_str()) {
+                                                thinking_text.push_str(thinking);
+                                                let _ = stream_tx.send(StreamEvent::Thinking {
+                                                    text: thinking.to_string(),
+                                                });
+                                            }
+                                        }
+                                        "input_json_delta" => {
+                                            if let Some(partial) = delta.get("partial_json").and_then(|p| p.as_str()) {
+                                                current_tool_input.push_str(partial);
+                                                let _ = stream_tx.send(StreamEvent::ToolInputDelta {
+                                                    id: current_tool_id.clone(),
+                                                    delta: partial.to_string(),
+                                                });
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            "content_block_stop" => {
+                                if in_tool_use {
+                                    let args: Value = serde_json::from_str(&current_tool_input)
+                                        .unwrap_or(Value::Object(serde_json::Map::new()));
+                                    tool_calls.push(ToolCall {
+                                        id: current_tool_id.clone(),
+                                        name: current_tool_name.clone(),
+                                        arguments: args,
+                                    });
+                                    in_tool_use = false;
+                                }
+                            }
+                            "message_delta" => {
+                                if let Some(usage) = parsed.get("usage") {
+                                    let output = usage.get("output_tokens").and_then(|t| t.as_u64()).unwrap_or(0) as u32;
+                                    let _ = stream_tx.send(StreamEvent::Usage {
+                                        input_tokens: 0,
+                                        output_tokens: output,
+                                    });
+                                }
+                            }
+                            "message_start" => {
+                                if let Some(msg) = parsed.get("message") {
+                                    if let Some(usage) = msg.get("usage") {
+                                        let input = usage.get("input_tokens").and_then(|t| t.as_u64()).unwrap_or(0) as u32;
+                                        let _ = stream_tx.send(StreamEvent::Usage {
+                                            input_tokens: input,
+                                            output_tokens: 0,
+                                        });
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        let _ = stream_tx.send(StreamEvent::MessageStop);
+
+        if !tool_calls.is_empty() {
+            Ok(LlmResponse::ToolCalls(tool_calls))
+        } else if !thinking_text.is_empty() {
+            Ok(LlmResponse::TextWithThinking {
+                text: full_text,
+                thinking: thinking_text,
+            })
+        } else {
+            Ok(LlmResponse::Text(full_text))
+        }
     }
 }

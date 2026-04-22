@@ -1,13 +1,13 @@
 {
-  "name": "gmv-agent",
-  "version": "0.2.0",
-  "description": "GMV Agent — A Rust-powered personal AI assistant (Node.js bindings)",
+  "name": "openpylot",
+  "version": "0.3.0",
+  "description": "OpenPylot — A Rust-powered personal AI assistant (Node.js bindings)",
   "main": "js/index.js",
   "types": "js/index.d.ts",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/GMV-AI/gmv-agent"
+    "url": "https://github.com/openpylot/pylot"
   },
   "keywords": [
     "ai",
@@ -16,10 +16,11 @@
     "personal-assistant",
     "llm",
     "rust",
-    "napi"
+    "napi",
+    "pylot"
   ],
   "bin": {
-    "gmv-agent": "js/cli.js"
+    "pylot": "js/cli.js"
   },
   "files": [
     "js/**/*.js",
@@ -27,7 +28,7 @@
     "*.node"
   ],
   "napi": {
-    "name": "gmv-agent",
+    "name": "openpylot",
     "triples": {
       "defaults": true,
       "additional": [

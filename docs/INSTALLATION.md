@@ -1,6 +1,6 @@
-# GMV Agent — Installation Guide
+# OpenPylot — Installation Guide
 
-Complete guide for installing, configuring, and running GMV Agent.
+Complete guide for installing, configuring, and running OpenPylot.
 
 ## Table of Contents
 
@@ -25,13 +25,13 @@ Complete guide for installing, configuring, and running GMV Agent.
 One-line installer (macOS / Linux):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/GMV-AI/gmv-agent/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/openpylot/pylot/main/install.sh | bash
 ```
 
 This will:
 1. Detect your platform (macOS/Linux, x86_64/aarch64)
 2. Download the latest release binary
-3. Install to `~/.gmv-agent/bin/`
+3. Install to `~/.pylot/bin/`
 4. Add to your PATH
 5. Launch the interactive setup wizard
 
@@ -39,13 +39,13 @@ This will:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `GMV_VERSION` | Specific version to install | `latest` |
-| `GMV_PREFIX` | Installation directory | `~/.gmv-agent` |
-| `GMV_NO_INIT` | Skip setup wizard (`1` to skip) | `0` |
+| `PYLOT_VERSION` | Specific version to install | `latest` |
+| `PYLOT_PREFIX` | Installation directory | `~/.pylot` |
+| `PYLOT_NO_INIT` | Skip setup wizard (`1` to skip) | `0` |
 
 Example:
 ```bash
-GMV_VERSION=0.2.0 GMV_NO_INIT=1 curl -fsSL .../install.sh | bash
+PYLOT_VERSION=0.2.0 PYLOT_NO_INIT=1 curl -fsSL .../install.sh | bash
 ```
 
 ---
@@ -55,26 +55,26 @@ GMV_VERSION=0.2.0 GMV_NO_INIT=1 curl -fsSL .../install.sh | bash
 ### Download Binary
 
 Download the pre-built binary for your platform from the
-[Releases page](https://github.com/GMV-AI/gmv-agent/releases):
+[Releases page](https://github.com/openpylot/pylot/releases):
 
 | Platform | Binary |
 |----------|--------|
-| macOS (Apple Silicon) | `gmv-agent-aarch64-apple-darwin.tar.gz` |
-| macOS (Intel) | `gmv-agent-x86_64-apple-darwin.tar.gz` |
-| Linux (x86_64) | `gmv-agent-x86_64-unknown-linux-gnu.tar.gz` |
-| Linux (ARM64) | `gmv-agent-aarch64-unknown-linux-gnu.tar.gz` |
+| macOS (Apple Silicon) | `pylot-aarch64-apple-darwin.tar.gz` |
+| macOS (Intel) | `pylot-x86_64-apple-darwin.tar.gz` |
+| Linux (x86_64) | `pylot-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux (ARM64) | `pylot-aarch64-unknown-linux-gnu.tar.gz` |
 
 ```bash
 # Extract
-tar -xzf gmv-agent-*.tar.gz
+tar -xzf pylot-*.tar.gz
 
 # Move to a directory in your PATH
-sudo mv gmv-agent /usr/local/bin/
+sudo mv pylot /usr/local/bin/
 # or
-mkdir -p ~/.gmv-agent/bin && mv gmv-agent ~/.gmv-agent/bin/
+mkdir -p ~/.pylot/bin && mv pylot ~/.pylot/bin/
 
 # Verify
-gmv-agent --version
+pylot --version
 ```
 
 ---
@@ -82,20 +82,20 @@ gmv-agent --version
 ## Homebrew
 
 ```bash
-brew tap GMV-AI/tap
-brew install gmv-agent
+brew tap openpylot/tap
+brew install pylot
 ```
 
 To start as a background service:
 
 ```bash
-brew services start gmv-agent
+brew services start pylot
 ```
 
 To upgrade:
 
 ```bash
-brew upgrade gmv-agent
+brew upgrade pylot
 ```
 
 ---
@@ -105,30 +105,30 @@ brew upgrade gmv-agent
 ### Using Docker Compose (recommended)
 
 ```bash
-git clone https://github.com/GMV-AI/gmv-agent.git
-cd gmv-agent
+git clone https://github.com/openpylot/pylot.git
+cd pylot
 docker compose up -d
 ```
 
-The `docker-compose.yml` mounts `~/.gmv-agent` for persistent configuration and data.
+The `docker-compose.yml` mounts `~/.pylot` for persistent configuration and data.
 
 ### Using Docker directly
 
 ```bash
 # Build
-docker build -t gmv-agent .
+docker build -t pylot .
 
 # Run interactive mode
 docker run --rm -it \
-  -v ~/.gmv-agent:/home/agent/.gmv-agent \
+  -v ~/.pylot:/home/pylot/.pylot \
   -e OPENAI_API_KEY=sk-... \
-  gmv-agent
+  pylot
 
 # Run one-shot chat
 docker run --rm \
-  -v ~/.gmv-agent:/home/agent/.gmv-agent \
+  -v ~/.pylot:/home/pylot/.pylot \
   -e OPENAI_API_KEY=sk-... \
-  gmv-agent chat "What's on my calendar today?"
+  pylot chat "What's on my calendar today?"
 ```
 
 ### Environment Variables in Docker
@@ -137,12 +137,12 @@ Pass API keys via environment variables or mount a secrets vault:
 
 ```bash
 docker run --rm -it \
-  -v ~/.gmv-agent:/home/agent/.gmv-agent \
+  -v ~/.pylot:/home/pylot/.pylot \
   -e OPENAI_API_KEY=sk-... \
   -e TELEGRAM_BOT_TOKEN=... \
   -p 3001:3001 \
   -p 8443:8443 \
-  gmv-agent serve --foreground
+  pylot serve --foreground
 ```
 
 ---
@@ -152,7 +152,7 @@ docker run --rm -it \
 ### Install from PyPI
 
 ```bash
-pip install gmv-agent
+pip install pylot
 ```
 
 > **Note:** The Rust binary must also be installed and on your `PATH`.
@@ -161,15 +161,15 @@ pip install gmv-agent
 ### Verify
 
 ```bash
-python -c "from gmv_agent import GMVAgent; print('OK')"
-gmv-agent --version
+python -c "from pylot import PylotAgent; print('OK')"
+pylot --version
 ```
 
 ### Development Install
 
 ```bash
-git clone https://github.com/GMV-AI/gmv-agent.git
-cd gmv-agent/python
+git clone https://github.com/openpylot/pylot.git
+cd pylot/python
 pip install maturin
 maturin develop
 pip install -e ".[dev]"
@@ -185,11 +185,11 @@ See [python/README.md](../python/README.md) for full Python usage documentation.
 ### Install from npm
 
 ```bash
-# Global install (provides gmv-agent CLI)
-npm install -g gmv-agent
+# Global install (provides pylot CLI)
+npm install -g pylot
 
 # Or as a project dependency
-npm install gmv-agent
+npm install pylot
 ```
 
 > **Note:** The Rust binary must also be installed and on your `PATH`.
@@ -198,15 +198,15 @@ npm install gmv-agent
 ### Verify
 
 ```bash
-node -e "const { GMVAgent } = require('gmv-agent'); console.log('OK')"
-npx gmv-agent --version
+node -e "const { PylotAgent } = require('pylot'); console.log('OK')"
+npx pylot --version
 ```
 
 ### Development Install
 
 ```bash
-git clone https://github.com/GMV-AI/gmv-agent.git
-cd gmv-agent/node
+git clone https://github.com/openpylot/pylot.git
+cd pylot/node
 npm install
 npm run build
 npm test
@@ -229,17 +229,17 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
 # Clone the repository
-git clone https://github.com/GMV-AI/gmv-agent.git
-cd gmv-agent
+git clone https://github.com/openpylot/pylot.git
+cd pylot
 
 # Build in release mode
 cargo build --release
 
-# The binary is at target/release/gmv-agent
-./target/release/gmv-agent --version
+# The binary is at target/release/pylot
+./target/release/pylot --version
 
 # Optionally install system-wide
-sudo cp target/release/gmv-agent /usr/local/bin/
+sudo cp target/release/pylot /usr/local/bin/
 ```
 
 ### Build All Bindings
@@ -262,17 +262,17 @@ cd ..
 
 ## Configuration
 
-GMV Agent uses a layered configuration system:
+OpenPylot uses a layered configuration system:
 
 1. **Environment variables** (highest priority)
-2. **Encrypted secrets vault** (`~/.gmv-agent/secrets.enc`)
-3. **TOML config files** (`config/default.toml` or `~/.gmv-agent/config.toml`)
+2. **Encrypted secrets vault** (`~/.pylot/secrets.enc`)
+3. **TOML config files** (`config/default.toml` or `~/.pylot/config.toml`)
 4. **Built-in defaults** (lowest priority)
 
 ### Interactive Setup (Recommended)
 
 ```bash
-gmv-agent init
+pylot init
 ```
 
 This wizard guides you through:
@@ -306,12 +306,12 @@ Key variables:
 | `TWILIO_ACCOUNT_SID` | Twilio account SID | For WhatsApp |
 | `TWILIO_AUTH_TOKEN` | Twilio auth token | For WhatsApp |
 | `TWILIO_WHATSAPP_FROM` | Twilio WhatsApp sender number | For WhatsApp |
-| `AGENT_NAME` | Agent display name | No (default: GMV Agent) |
+| `AGENT_NAME` | Agent display name | No (default: Pylot) |
 | `AGENT_PERSONA` | Agent personality description | No |
 
 #### Option B: Encrypted Secrets Vault (Recommended)
 
-After running `gmv-agent init`, secrets are stored encrypted at `~/.gmv-agent/secrets.enc`.
+After running `pylot init`, secrets are stored encrypted at `~/.pylot/secrets.enc`.
 
 - **AES-256-GCM** encryption
 - **Machine-bound** — encrypted with your machine's unique ID
@@ -319,7 +319,7 @@ After running `gmv-agent init`, secrets are stored encrypted at `~/.gmv-agent/se
 
 #### Option C: TOML Config File
 
-Edit `config/default.toml` or create `~/.gmv-agent/config.toml`:
+Edit `config/default.toml` or create `~/.pylot/config.toml`:
 
 ```toml
 [agent]
@@ -352,54 +352,54 @@ enabled = true
 ### Interactive Mode (REPL)
 
 ```bash
-gmv-agent
+pylot
 ```
 
 ### One-Shot Query
 
 ```bash
-gmv-agent chat "What's on my calendar today?"
+pylot chat "What's on my calendar today?"
 ```
 
 ### Check Configuration
 
 ```bash
 # Diagnostic check
-gmv-agent doctor
+pylot doctor
 
 # Show status
-gmv-agent status
+pylot status
 ```
 
 ### Available Commands
 
 | Command | Description |
 |---------|-------------|
-| `gmv-agent` | Interactive mode (REPL) |
-| `gmv-agent chat "..."` | One-shot query |
-| `gmv-agent init` | Run setup wizard (`--reset` to start fresh, `--only <service>`) |
-| `gmv-agent add <service>` | Add a service (telegram, google-calendar, whatsapp, github, slack) |
-| `gmv-agent remove <service>` | Remove a service |
-| `gmv-agent doctor` | Diagnostic check |
-| `gmv-agent status` | Show agent status |
-| `gmv-agent config list` | List current configuration |
-| `gmv-agent config set <key> <value>` | Set a config value |
-| `gmv-agent serve` | Start background daemon |
-| `gmv-agent serve install` | Install as system service |
-| `gmv-agent serve uninstall` | Remove system service |
-| `gmv-agent jobs list` | List scheduled jobs |
-| `gmv-agent jobs run <name>` | Run a job immediately |
-| `gmv-agent jobs enable <name>` | Enable a job |
-| `gmv-agent jobs disable <name>` | Disable a job |
-| `gmv-agent tools` | List available tools |
-| `gmv-agent telegram-bot` | Start Telegram bot mode |
-| `gmv-agent logs` | Tail agent logs (`--scheduler` for scheduler logs) |
+| `pylot` | Interactive mode (REPL) |
+| `pylot chat "..."` | One-shot query |
+| `pylot init` | Run setup wizard (`--reset` to start fresh, `--only <service>`) |
+| `pylot add <service>` | Add a service (telegram, google-calendar, whatsapp, github, slack) |
+| `pylot remove <service>` | Remove a service |
+| `pylot doctor` | Diagnostic check |
+| `pylot status` | Show agent status |
+| `pylot config list` | List current configuration |
+| `pylot config set <key> <value>` | Set a config value |
+| `pylot serve` | Start background daemon |
+| `pylot serve install` | Install as system service |
+| `pylot serve uninstall` | Remove system service |
+| `pylot jobs list` | List scheduled jobs |
+| `pylot jobs run <name>` | Run a job immediately |
+| `pylot jobs enable <name>` | Enable a job |
+| `pylot jobs disable <name>` | Disable a job |
+| `pylot tools` | List available tools |
+| `pylot telegram-bot` | Start Telegram bot mode |
+| `pylot logs` | Tail agent logs (`--scheduler` for scheduler logs) |
 
 ---
 
 ## Background Service
 
-GMV Agent can run as a background daemon with scheduled jobs (RSVP monitoring, meeting reminders, daily briefing, calendar sync, token refresh, email digest).
+OpenPylot can run as a background daemon with scheduled jobs (RSVP monitoring, meeting reminders, daily briefing, calendar sync, token refresh, email digest).
 
 ### Scheduled Jobs
 
@@ -417,17 +417,17 @@ GMV Agent can run as a background daemon with scheduled jobs (RSVP monitoring, m
 
 ```bash
 # macOS (launchd)
-gmv-agent serve install
+pylot serve install
 
-# This creates ~/Library/LaunchAgents/com.gmv.agent.plist
+# This creates ~/Library/LaunchAgents/com.openpylot.agent.plist
 # and starts the service automatically
 ```
 
 ```bash
 # Linux (systemd)
-gmv-agent serve install
+pylot serve install
 
-# This creates ~/.config/systemd/user/gmv-agent.service
+# This creates ~/.config/systemd/user/pylot.service
 # and enables + starts it
 ```
 
@@ -435,19 +435,19 @@ gmv-agent serve install
 
 ```bash
 # Check status
-gmv-agent status
+pylot status
 
 # View logs
-gmv-agent logs
+pylot logs
 
 # List scheduled jobs
-gmv-agent jobs list
+pylot jobs list
 
 # Run a job manually
-gmv-agent jobs run <job-name>
+pylot jobs run <job-name>
 
 # Uninstall
-gmv-agent serve uninstall
+pylot serve uninstall
 ```
 
 ---
@@ -457,30 +457,30 @@ gmv-agent serve uninstall
 ### Via Installer
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/GMV-AI/gmv-agent/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/openpylot/pylot/main/install.sh | bash
 ```
 
 ### Via Homebrew
 
 ```bash
-brew upgrade gmv-agent
+brew upgrade pylot
 ```
 
 ### Via pip / npm
 
 ```bash
-pip install --upgrade gmv-agent
+pip install --upgrade pylot
 # or
-npm update -g gmv-agent
+npm update -g pylot
 ```
 
 ### From Source
 
 ```bash
-cd gmv-agent
+cd pylot
 git pull
 cargo build --release
-sudo cp target/release/gmv-agent /usr/local/bin/
+sudo cp target/release/pylot /usr/local/bin/
 ```
 
 Your configuration and secrets vault are preserved across upgrades.
@@ -491,20 +491,20 @@ Your configuration and secrets vault are preserved across upgrades.
 
 ```bash
 # Remove system service (if installed)
-gmv-agent serve uninstall
+pylot serve uninstall
 
 # Remove binary
-rm ~/.gmv-agent/bin/gmv-agent
-# or: sudo rm /usr/local/bin/gmv-agent
-# or: brew uninstall gmv-agent
-# or: pip uninstall gmv-agent
-# or: npm uninstall -g gmv-agent
+rm ~/.pylot/bin/pylot
+# or: sudo rm /usr/local/bin/pylot
+# or: brew uninstall pylot
+# or: pip uninstall pylot
+# or: npm uninstall -g pylot
 
 # Remove all data and configuration (optional)
-rm -rf ~/.gmv-agent
+rm -rf ~/.pylot
 
 # Remove PATH entry from shell rc file
-# Edit ~/.zshrc or ~/.bashrc and remove the gmv-agent PATH line
+# Edit ~/.zshrc or ~/.bashrc and remove the pylot PATH line
 ```
 
 ---
@@ -515,22 +515,22 @@ rm -rf ~/.gmv-agent
 
 **"No LLM API key configured"**
 ```bash
-gmv-agent init   # Re-run setup wizard
+pylot init   # Re-run setup wizard
 # or set manually:
 export OPENAI_API_KEY=sk-your-key
 ```
 
 **"Failed to create data directory"**
 ```bash
-mkdir -p ~/.gmv-agent/data
-chmod 755 ~/.gmv-agent/data
+mkdir -p ~/.pylot/data
+chmod 755 ~/.pylot/data
 ```
 
 **"Secrets file is corrupted"**
 ```bash
 # Back up and recreate
-mv ~/.gmv-agent/secrets.enc ~/.gmv-agent/secrets.enc.bak
-gmv-agent init
+mv ~/.pylot/secrets.enc ~/.pylot/secrets.enc.bak
+pylot init
 ```
 
 **Google Calendar OAuth fails**
@@ -541,12 +541,12 @@ lsof -i :8085
 export GOOGLE_REDIRECT_PORT=9090
 ```
 
-**Python/Node.js: "gmv-agent binary not found"**
+**Python/Node.js: "pylot binary not found"**
 ```bash
 # The Rust binary must be on your PATH
-which gmv-agent
+which pylot
 # If not found, install it:
-curl -fsSL https://raw.githubusercontent.com/GMV-AI/gmv-agent/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/openpylot/pylot/main/install.sh | bash
 # Then restart your shell or source your profile:
 source ~/.zshrc
 ```
@@ -554,7 +554,7 @@ source ~/.zshrc
 ### Diagnostic Check
 
 ```bash
-gmv-agent doctor
+pylot doctor
 ```
 
 This checks:
@@ -568,14 +568,14 @@ This checks:
 
 ```bash
 # Enable debug logging
-RUST_LOG=debug gmv-agent
+RUST_LOG=debug pylot
 
 # View service logs
-gmv-agent logs
+pylot logs
 ```
 
 ### Getting Help
 
-- Run `gmv-agent --help` for command reference
-- Check [GitHub Issues](https://github.com/GMV-AI/gmv-agent/issues)
+- Run `pylot --help` for command reference
+- Check [GitHub Issues](https://github.com/openpylot/pylot/issues)
 - See [CONTRIBUTING.md](../CONTRIBUTING.md) for development setup

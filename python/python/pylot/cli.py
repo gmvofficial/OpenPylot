@@ -1,0 +1,35 @@
+"""CLI entry point for the Python package.
+
+Registered as a console_script in pyproject.toml so that
+``pip install openpylot`` makes ``pylot`` available on PATH.
+
+This thin wrapper delegates to the Rust binary for all heavy lifting.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+
+
+def main() -> None:
+    """Forward all arguments to the native pylot binary."""
+    try:
+        result = subprocess.run(
+            ["pylot"] + sys.argv[1:],
+            check=False,
+        )
+        sys.exit(result.returncode)
+    except FileNotFoundError:
+        print(
+            "Error: pylot binary not found on PATH.\n"
+            "Install it first:\n"
+            "  curl -fsSL https://get.openpylot.dev/install.sh | sh\n"
+            "  # or: cargo install pylot",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

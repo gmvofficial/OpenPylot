@@ -37,7 +37,7 @@ pub struct DocumentLoaderConfig {
 impl Default for DocumentLoaderConfig {
     fn default() -> Self {
         Self {
-            max_file_size: 10 * 1024 * 1024, // 10MB
+            max_file_size: 50 * 1024 * 1024, // 50MB
             default_encoding: "utf-8".to_string(),
             preserve_formatting: false,
             enable_ocr: cfg!(feature = "ocr"), // Auto-enable if OCR feature is compiled
@@ -264,7 +264,7 @@ impl DocumentLoader {
         // Create HTTP client with timeout and user agent
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
-            .user_agent("GMV-Agent Document Loader/1.0")
+            .user_agent("Pylot Document Loader/1.0")
             .build()
             .context("Failed to create HTTP client")?;
 
@@ -790,8 +790,32 @@ impl DocumentLoader {
         bytes: &[u8],
         filename: Option<&str>,
     ) -> Result<String> {
-        // Try standard PDF text extraction first
-        match pdf_extract::extract_text_from_mem(bytes) {
+        // Try standard PDF text extraction first.
+        // pdf_extract can panic on certain color spaces (e.g. DeviceN),
+        // so we wrap in catch_unwind to turn panics into errors.
+        let bytes_owned = bytes.to_vec();
+        let extraction = tokio::task::spawn_blocking(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                pdf_extract::extract_text_from_mem(&bytes_owned)
+            }))
+        })
+        .await
+        .context("PDF extraction task failed")?;
+
+        let pdf_result: anyhow::Result<String> = match extraction {
+            Ok(inner) => inner.map_err(|e| anyhow::anyhow!("{e}")),
+            Err(panic_info) => {
+                let msg = panic_info
+                    .downcast_ref::<String>()
+                    .map(|s| s.as_str())
+                    .or_else(|| panic_info.downcast_ref::<&str>().copied())
+                    .unwrap_or("unknown panic");
+                tracing::warn!("pdf-extract panicked: {msg}");
+                Err(anyhow::anyhow!("pdf-extract panicked: {msg}"))
+            }
+        };
+
+        match pdf_result {
             Ok(text) if !text.trim().is_empty() => {
                 let text_len = text.trim().len();
                 let file_size = bytes.len();

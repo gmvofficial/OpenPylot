@@ -12,7 +12,7 @@ const pkg = JSON.parse(readFileSync(join(nodeDir, 'package.json'), 'utf-8'));
 
 describe('Package metadata', () => {
   it('should have correct name', () => {
-    assert.equal(pkg.name, 'gmv-agent');
+    assert.equal(pkg.name, 'openpylot');
   });
 
   it('should have version 0.2.0', () => {
@@ -30,8 +30,8 @@ describe('Package metadata', () => {
 
   it('should have the CLI binary registered', () => {
     assert.ok(pkg.bin);
-    assert.ok(pkg.bin['gmv-agent']);
-    assert.equal(pkg.bin['gmv-agent'], 'js/cli.js');
+    assert.ok(pkg.bin['openpylot']);
+    assert.equal(pkg.bin['openpylot'], 'js/cli.js');
   });
 
   it('should have MIT license', () => {
@@ -51,7 +51,7 @@ describe('Package metadata', () => {
 describe('NAPI configuration', () => {
   it('should have napi config', () => {
     assert.ok(pkg.napi);
-    assert.equal(pkg.napi.name, 'gmv-agent');
+    assert.equal(pkg.napi.name, 'openpylot');
   });
 
   it('should have default triples enabled', () => {
@@ -123,13 +123,13 @@ describe('File structure', () => {
   it('should have cli.js entry point', () => {
     const cliContent = readFileSync(join(nodeDir, 'js', 'cli.js'), 'utf-8');
     assert.ok(cliContent.includes('#!/usr/bin/env node'));
-    assert.ok(cliContent.includes('gmv-agent'));
+    assert.ok(cliContent.includes('openpylot'));
   });
 
   it('should have index.ts with type declarations', () => {
     const indexContent = readFileSync(join(nodeDir, 'js', 'index.ts'), 'utf-8');
     assert.ok(indexContent.includes('interface Config'));
-    assert.ok(indexContent.includes('class GMVAgent'));
+    assert.ok(indexContent.includes('class PylotAgent'));
   });
 
   it('should have package files pattern', () => {

@@ -39,12 +39,13 @@ export function ChatInput() {
     }
   };
 
+  // SSE streaming works without a WebSocket connection
   const canSend = value.trim().length > 0 && !isStreaming;
 
   return (
-    <div className="border-t border-border bg-background px-4 py-3">
+    <div className="border-t border-border bg-background px-4 py-4">
       <div className="max-w-chat mx-auto">
-        <div className="flex items-end gap-2 bg-background-input border border-border rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-accent/30 focus-within:border-accent/30 transition-colors">
+        <div className="flex items-end gap-2 bg-background-input border border-border rounded-2xl px-4 py-3 focus-within:ring-2 focus-within:ring-accent/30 focus-within:border-accent/30 transition-colors">
           {/* Attach */}
           <Button
             variant="ghost"
@@ -61,15 +62,11 @@ export function ChatInput() {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={
-              isConnected
-                ? "Type a message... (Shift+Enter for new line)"
-                : "Connecting to agent..."
-            }
-            disabled={!isConnected}
-            rows={1}
+            placeholder="Ask anything..."
+            disabled={isStreaming}
+            rows={2}
             className={cn(
-              "flex-1 bg-transparent text-[15px] text-foreground placeholder:text-foreground-muted resize-none outline-none py-1 max-h-[200px]",
+              "flex-1 bg-transparent text-[15px] text-foreground placeholder:text-foreground-muted placeholder:text-center resize-none outline-none py-2 max-h-[200px] min-h-[52px]",
               "disabled:opacity-50"
             )}
           />

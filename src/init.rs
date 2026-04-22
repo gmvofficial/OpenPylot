@@ -6,9 +6,9 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::secrets::{gmv_home_dir, SecretsVault};
+use crate::secrets::{pylot_home_dir, SecretsVault};
 
-/// Interactive setup wizard for GMV Agent.
+/// Interactive setup wizard for OpenPylot.
 ///
 /// Guides users through configuring:
 /// 1. LLM provider & API key
@@ -25,7 +25,7 @@ pub struct InitWizard {
 
 impl InitWizard {
     pub fn new(reset: bool) -> Self {
-        let home = gmv_home_dir();
+        let home = pylot_home_dir();
         Self {
             secrets_path: home.join("secrets.enc"),
             config_path: home.join("config.toml"),
@@ -56,11 +56,17 @@ impl InitWizard {
         // Step 2: Agent Identity
         let (agent_name, user_name, persona) = self.step_agent_identity()?;
 
-        // Step 3: Integrations
+        // Step 3: Integrations (messaging + productivity)
         let integrations = self.step_integrations(&mut vault).await?;
 
+        // Step 3b: Social Media Platforms
+        let social_platforms = self.step_social_platforms(&mut vault)?;
+        let all_integrations: Vec<String> = integrations.into_iter()
+            .chain(social_platforms.into_iter())
+            .collect();
+
         // Step 4: Notifications
-        let notifications = self.step_notifications(&integrations)?;
+        let notifications = self.step_notifications(&all_integrations)?;
 
         // Step 5: Background services
         let bg_config = self.step_background_services()?;
@@ -75,7 +81,7 @@ impl InitWizard {
             &agent_name,
             &user_name,
             &persona,
-            &integrations,
+            &all_integrations,
             &notifications,
             &bg_config,
         )?;
@@ -86,7 +92,7 @@ impl InitWizard {
             &model,
             &agent_name,
             &user_name,
-            &integrations,
+            &all_integrations,
             &notifications,
             &bg_config,
         );
@@ -165,7 +171,7 @@ impl InitWizard {
         );
         println!(
             "{}",
-            "│   🤖 GMV Agent — Interactive Setup                          │"
+            "│   🤖 OpenPylot — Interactive Setup                          │"
                 .bright_cyan()
         );
         println!(
@@ -279,7 +285,7 @@ impl InitWizard {
                 println!(
                     "  {} Skipped. You can configure later with: {}",
                     "⏭".dimmed(),
-                    "gmv-agent init --only openai".bright_green()
+                    "pylot init --only openai".bright_green()
                 );
                 ("openai".to_string(), "gpt-4o".to_string())
             }
@@ -494,7 +500,7 @@ impl InitWizard {
             println!(
                 "  {} Skipped. Configure later with: {}",
                 "⏭".dimmed(),
-                "gmv-agent init --only <service>".bright_green()
+                "pylot init --only <service>".bright_green()
             );
         }
 
@@ -580,7 +586,7 @@ impl InitWizard {
         let bg_config = match selection {
             0 => {
                 println!(
-                    "  {} System service will be configured on first 'gmv-agent serve'",
+                    "  {} System service will be configured on first 'pylot serve'",
                     "ℹ".bright_blue()
                 );
                 BackgroundConfig {
@@ -637,7 +643,7 @@ impl InitWizard {
             println!(
                 "  {} Skip for now. Set up later with: {}",
                 "⏭".dimmed(),
-                "gmv-agent init --only google-calendar".bright_green()
+                "pylot init --only google-calendar".bright_green()
             );
             return Ok(());
         }
@@ -839,6 +845,311 @@ impl InitWizard {
         Ok(())
     }
 
+    // ── Step 3b: Social Media Platforms ──────────────────────────────
+
+    fn step_social_platforms(&self, vault: &mut SecretsVault) -> Result<Vec<String>> {
+        println!(
+            "\n{}\n{}",
+            "Step 3b: Social Media Platforms (optional)".bright_blue().bold(),
+            "─".repeat(40).dimmed()
+        );
+        println!(
+            "  {} Connect social accounts for content publishing & analytics.\n",
+            "ℹ".bright_blue()
+        );
+
+        let platform_options = vec![
+            "Twitter/X           — API key + OAuth tokens",
+            "LinkedIn            — OAuth access token",
+            "Facebook            — Page access token",
+            "Instagram           — Via Facebook Graph API",
+            "Bluesky             — Handle + app password",
+            "TikTok              — OAuth access token",
+            "YouTube             — OAuth access token",
+            "Mastodon            — Instance URL + token",
+            "Medium              — Integration token",
+            "Dev.to              — API key",
+            "Reddit              — OAuth access token",
+            "Pinterest           — OAuth access token",
+            "Threads             — Meta Graph API token",
+            "Discord (posting)   — Bot token + channel",
+            "Hashnode            — API key + publication ID",
+            "WordPress           — Site URL + app password",
+        ];
+
+        let selections = MultiSelect::new()
+            .with_prompt("Select platforms to connect (space to toggle, enter to continue)")
+            .items(&platform_options)
+            .interact()
+            .context("Failed to get social platform selections")?;
+
+        if selections.is_empty() {
+            println!(
+                "  {} Skipped. Add later with: {}",
+                "⏭".dimmed(),
+                "pylot init --only twitter".bright_green()
+            );
+            return Ok(Vec::new());
+        }
+
+        let mut configured = Vec::new();
+
+        let platform_names = [
+            "twitter", "linkedin", "facebook", "instagram", "bluesky",
+            "tiktok", "youtube", "mastodon", "medium", "devto",
+            "reddit", "pinterest", "threads", "discord", "hashnode", "wordpress",
+        ];
+
+        for &idx in &selections {
+            if idx >= platform_names.len() { continue; }
+            let name = platform_names[idx];
+            println!("\n  {} Setting up {}...", "→".bright_blue(), name.bright_cyan());
+
+            let result = match name {
+                "twitter" => self.setup_social_twitter(vault),
+                "linkedin" => self.setup_social_oauth_token(vault, "linkedin", "LinkedIn",
+                    "https://www.linkedin.com/developers/apps",
+                    &["linkedin.access_token", "linkedin.person_id"]),
+                "facebook" => self.setup_social_oauth_token(vault, "facebook", "Facebook",
+                    "https://developers.facebook.com/apps",
+                    &["facebook.access_token", "facebook.page_id"]),
+                "instagram" => self.setup_social_oauth_token(vault, "instagram", "Instagram",
+                    "https://developers.facebook.com/apps (use Facebook Graph API)",
+                    &["instagram.access_token", "instagram.user_id"]),
+                "bluesky" => self.setup_social_bluesky(vault),
+                "tiktok" => self.setup_social_oauth_token(vault, "tiktok", "TikTok",
+                    "https://developers.tiktok.com/apps",
+                    &["tiktok.access_token"]),
+                "youtube" => self.setup_social_oauth_token(vault, "youtube", "YouTube",
+                    "https://console.cloud.google.com/apis/credentials",
+                    &["youtube.access_token"]),
+                "mastodon" => self.setup_social_mastodon(vault),
+                "medium" => self.setup_social_simple_key(vault, "medium", "Medium",
+                    "Settings → Security and apps → Integration tokens",
+                    "Integration token", "medium.token"),
+                "devto" => self.setup_social_simple_key(vault, "devto", "Dev.to",
+                    "Settings → Extensions → Generate API Key",
+                    "API key", "devto.api_key"),
+                "reddit" => self.setup_social_oauth_token(vault, "reddit", "Reddit",
+                    "https://www.reddit.com/prefs/apps",
+                    &["reddit.access_token", "reddit.subreddit"]),
+                "pinterest" => self.setup_social_oauth_token(vault, "pinterest", "Pinterest",
+                    "https://developers.pinterest.com/apps",
+                    &["pinterest.access_token", "pinterest.board_id"]),
+                "threads" => self.setup_social_oauth_token(vault, "threads", "Threads",
+                    "https://developers.facebook.com/apps (Meta Graph API)",
+                    &["threads.access_token", "threads.user_id"]),
+                "discord" => self.setup_social_discord(vault),
+                "hashnode" => self.setup_social_hashnode(vault),
+                "wordpress" => self.setup_social_wordpress(vault),
+                _ => Ok(()),
+            };
+
+            match result {
+                Ok(_) => configured.push(name.to_string()),
+                Err(e) => println!("  {} {} setup failed: {}", "⚠".bright_yellow(), name, e),
+            }
+        }
+
+        Ok(configured)
+    }
+
+    // ── Social platform setup helpers ───────────────────────────────
+
+    fn setup_social_twitter(&self, vault: &mut SecretsVault) -> Result<()> {
+        println!("  {} Create a Twitter/X developer app at:", "ℹ".bright_blue());
+        println!("     {}", "https://developer.twitter.com/en/portal/projects".bright_blue().underline());
+
+        let api_key: String = Password::new()
+            .with_prompt("  API Key (Consumer Key)")
+            .interact()?;
+        if api_key.is_empty() { return Ok(()); }
+        vault.set("twitter.api_key", &api_key)?;
+
+        let api_secret: String = Password::new()
+            .with_prompt("  API Secret (Consumer Secret)")
+            .interact()?;
+        vault.set("twitter.api_secret", &api_secret)?;
+
+        let access_token: String = Password::new()
+            .with_prompt("  Access Token")
+            .interact()?;
+        vault.set("twitter.access_token", &access_token)?;
+
+        let access_secret: String = Password::new()
+            .with_prompt("  Access Token Secret")
+            .interact()?;
+        vault.set("twitter.access_token_secret", &access_secret)?;
+
+        println!("  {} Twitter/X configured", "✅".bright_green());
+        Ok(())
+    }
+
+    fn setup_social_bluesky(&self, vault: &mut SecretsVault) -> Result<()> {
+        println!("  {} Bluesky uses handle + app password (no OAuth needed).", "ℹ".bright_blue());
+        println!("     Generate at: {}", "Settings → App Passwords → Add App Password".bright_blue());
+
+        let handle: String = Input::new()
+            .with_prompt("  Bluesky handle (e.g. you.bsky.social)")
+            .interact_text()?;
+        if handle.is_empty() { return Ok(()); }
+        vault.set("bluesky.handle", &handle)?;
+
+        let app_password: String = Password::new()
+            .with_prompt("  App password")
+            .interact()?;
+        vault.set("bluesky.app_password", &app_password)?;
+
+        println!("  {} Bluesky configured", "✅".bright_green());
+        Ok(())
+    }
+
+    fn setup_social_mastodon(&self, vault: &mut SecretsVault) -> Result<()> {
+        println!("  {} Mastodon needs your instance URL and an access token.", "ℹ".bright_blue());
+        println!("     Go to: Preferences → Development → New Application");
+
+        let instance: String = Input::new()
+            .with_prompt("  Instance URL (e.g. https://mastodon.social)")
+            .interact_text()?;
+        if instance.is_empty() { return Ok(()); }
+        vault.set("mastodon.instance_url", &instance)?;
+
+        let token: String = Password::new()
+            .with_prompt("  Access token")
+            .interact()?;
+        vault.set("mastodon.access_token", &token)?;
+
+        println!("  {} Mastodon configured", "✅".bright_green());
+        Ok(())
+    }
+
+    fn setup_social_discord(&self, vault: &mut SecretsVault) -> Result<()> {
+        println!("  {} Create a bot at: {}", "ℹ".bright_blue(),
+            "https://discord.com/developers/applications".bright_blue().underline());
+
+        let bot_token: String = Password::new()
+            .with_prompt("  Bot Token")
+            .interact()?;
+        if bot_token.is_empty() { return Ok(()); }
+        vault.set("discord.bot_token", &bot_token)?;
+
+        let channel_id: String = Input::new()
+            .with_prompt("  Default channel ID")
+            .interact_text()?;
+        if !channel_id.is_empty() {
+            vault.set("discord.channel_id", &channel_id)?;
+        }
+
+        println!("  {} Discord configured", "✅".bright_green());
+        Ok(())
+    }
+
+    fn setup_social_hashnode(&self, vault: &mut SecretsVault) -> Result<()> {
+        println!("  {} Get your Hashnode Personal Access Token from Settings → Developer.", "ℹ".bright_blue());
+
+        let api_key: String = Password::new()
+            .with_prompt("  API Key / PAT")
+            .interact()?;
+        if api_key.is_empty() { return Ok(()); }
+        vault.set("hashnode.api_key", &api_key)?;
+
+        let pub_id: String = Input::new()
+            .with_prompt("  Publication ID")
+            .interact_text()?;
+        if !pub_id.is_empty() {
+            vault.set("hashnode.publication_id", &pub_id)?;
+        }
+
+        println!("  {} Hashnode configured", "✅".bright_green());
+        Ok(())
+    }
+
+    fn setup_social_wordpress(&self, vault: &mut SecretsVault) -> Result<()> {
+        println!("  {} WordPress needs site URL + application password.", "ℹ".bright_blue());
+        println!("     Create at: Users → Profile → Application Passwords");
+
+        let site_url: String = Input::new()
+            .with_prompt("  WordPress site URL (e.g. https://yoursite.com)")
+            .interact_text()?;
+        if site_url.is_empty() { return Ok(()); }
+        vault.set("wordpress.site_url", &site_url)?;
+
+        let username: String = Input::new()
+            .with_prompt("  Username")
+            .interact_text()?;
+        vault.set("wordpress.username", &username)?;
+
+        let app_password: String = Password::new()
+            .with_prompt("  Application Password")
+            .interact()?;
+        vault.set("wordpress.app_password", &app_password)?;
+
+        println!("  {} WordPress configured", "✅".bright_green());
+        Ok(())
+    }
+
+    /// Generic OAuth token setup for platforms that need access_token + optional ID fields.
+    fn setup_social_oauth_token(
+        &self,
+        vault: &mut SecretsVault,
+        platform: &str,
+        display_name: &str,
+        dev_url: &str,
+        fields: &[&str],
+    ) -> Result<()> {
+        println!("  {} Create/configure your {} app at:", "ℹ".bright_blue(), display_name);
+        println!("     {}", dev_url.bright_blue().underline());
+        println!("  {} After OAuth, paste your credentials below.", "→".dimmed());
+
+        for field in fields {
+            let label = field.split('.').last().unwrap_or(field);
+            let is_token = label.contains("token") || label.contains("secret");
+
+            let value = if is_token {
+                Password::new()
+                    .with_prompt(format!("  {}", label.replace('_', " ")))
+                    .interact()?
+            } else {
+                Input::new()
+                    .with_prompt(format!("  {}", label.replace('_', " ")))
+                    .interact_text()?
+            };
+
+            if !value.is_empty() {
+                vault.set(field, &value)?;
+            }
+        }
+
+        println!("  {} {} configured", "✅".bright_green(), display_name);
+        Ok(())
+    }
+
+    /// Simple single API key/token setup.
+    fn setup_social_simple_key(
+        &self,
+        vault: &mut SecretsVault,
+        _platform: &str,
+        display_name: &str,
+        instructions: &str,
+        prompt_label: &str,
+        vault_key: &str,
+    ) -> Result<()> {
+        println!("  {} {}: {}", "ℹ".bright_blue(), display_name, instructions);
+
+        let key: String = Password::new()
+            .with_prompt(format!("  {}", prompt_label))
+            .interact()?;
+
+        if key.is_empty() {
+            println!("  {} Skipping {} setup.", "⏭".dimmed(), display_name);
+            return Ok(());
+        }
+
+        vault.set(vault_key, &key)?;
+        println!("  {} {} configured", "✅".bright_green(), display_name);
+        Ok(())
+    }
+
     // ── Config file generation ──────────────────────────────────────
 
     fn write_config(
@@ -855,10 +1166,15 @@ impl InitWizard {
         let google_enabled = integrations.iter().any(|i| i == "google-calendar");
         let telegram_enabled = integrations.iter().any(|i| i == "telegram");
         let whatsapp_enabled = integrations.iter().any(|i| i == "whatsapp");
+        let twitter_enabled = integrations.iter().any(|i| i == "twitter");
+        let linkedin_enabled = integrations.iter().any(|i| i == "linkedin");
+        let facebook_enabled = integrations.iter().any(|i| i == "facebook");
+        let instagram_enabled = integrations.iter().any(|i| i == "instagram");
+        let bluesky_enabled = integrations.iter().any(|i| i == "bluesky");
 
         let config = format!(
-            r#"# GMV Agent Configuration
-# Generated by: gmv-agent init
+            r#"# OpenPylot Configuration
+# Generated by: pylot init
 # Date: {date}
 
 [agent]
@@ -893,6 +1209,13 @@ calendar_sync_cron = "{calendar_sync}"
 rsvp_check_cron = "{rsvp_check}"
 daily_briefing_cron = "{daily_briefing}"
 reminder_check_cron = "{reminder_check}"
+
+[social]
+twitter_enabled = {twitter_enabled}
+linkedin_enabled = {linkedin_enabled}
+facebook_enabled = {facebook_enabled}
+instagram_enabled = {instagram_enabled}
+bluesky_enabled = {bluesky_enabled}
 "#,
             date = chrono::Utc::now().format("%Y-%m-%d"),
             agent_name = agent_name,
@@ -903,6 +1226,11 @@ reminder_check_cron = "{reminder_check}"
             google_enabled = google_enabled,
             telegram_enabled = telegram_enabled,
             whatsapp_enabled = whatsapp_enabled,
+            twitter_enabled = twitter_enabled,
+            linkedin_enabled = linkedin_enabled,
+            facebook_enabled = facebook_enabled,
+            instagram_enabled = instagram_enabled,
+            bluesky_enabled = bluesky_enabled,
             scheduler_enabled = bg_config.scheduler_enabled,
             calendar_sync = bg_config.calendar_sync_cron,
             rsvp_check = bg_config.rsvp_check_cron,
@@ -1015,17 +1343,17 @@ reminder_check_cron = "{reminder_check}"
         println!("│ Start the agent:                        │");
         println!(
             "│   $ {}{}│",
-            "gmv-agent".bright_green(),
+            "pylot".bright_green(),
             " ".repeat(23)
         );
         println!(
             "│   $ {}{}│",
-            "gmv-agent telegram-bot".bright_green(),
+            "pylot telegram-bot".bright_green(),
             " ".repeat(10)
         );
         println!(
             "│   $ {}{}│",
-            "gmv-agent serve".bright_green(),
+            "pylot serve".bright_green(),
             " ".repeat(17)
         );
         println!(
@@ -1037,7 +1365,7 @@ reminder_check_cron = "{reminder_check}"
     // ── Helpers ─────────────────────────────────────────────────────
 
     fn setup_directories(&self) -> Result<()> {
-        let home = gmv_home_dir();
+        let home = pylot_home_dir();
         std::fs::create_dir_all(&home)?;
         std::fs::create_dir_all(home.join("data"))?;
         std::fs::create_dir_all(home.join("logs"))?;
@@ -1090,15 +1418,15 @@ pub struct BackgroundConfig {
     pub reminder_check_cron: String,
 }
 
-/// Run the `gmv-agent doctor` diagnostic command.
+/// Run the `pylot doctor` diagnostic command.
 pub fn run_doctor() -> Result<()> {
     println!(
         "{}",
-        "🩺 GMV Agent Doctor — Checking configuration...".bright_blue().bold()
+        "🩺 OpenPylot Doctor — Checking configuration...".bright_blue().bold()
     );
     println!("{}", "─".repeat(50).dimmed());
 
-    let home = gmv_home_dir();
+    let home = pylot_home_dir();
 
     // Check directories
     check_item(
@@ -1157,14 +1485,14 @@ pub fn run_doctor() -> Result<()> {
         println!(
             "\n  {} Legacy .env file detected. Consider migrating with: {}",
             "⚠".bright_yellow(),
-            "gmv-agent init".bright_green()
+            "pylot init".bright_green()
         );
     }
 
     println!("\n{}", "─".repeat(50).dimmed());
     println!(
         "{}",
-        "Done! Fix any ❌ issues above by running: gmv-agent init".dimmed()
+        "Done! Fix any ❌ issues above by running: pylot init".dimmed()
     );
 
     Ok(())
@@ -1190,11 +1518,11 @@ fn check_item(name: &str, ok: bool, detail: &str) {
 pub fn run_status() -> Result<()> {
     println!(
         "{}",
-        "📊 GMV Agent Status".bright_blue().bold()
+        "📊 OpenPylot Status".bright_blue().bold()
     );
     println!("{}", "─".repeat(40).dimmed());
 
-    let home = gmv_home_dir();
+    let home = pylot_home_dir();
     let secrets_path = home.join("secrets.enc");
 
     if let Ok(vault) = SecretsVault::open(&secrets_path, None) {
@@ -1231,7 +1559,7 @@ pub fn run_status() -> Result<()> {
         println!(
             "  {} No secrets vault found. Run: {}",
             "⚠".bright_yellow(),
-            "gmv-agent init".bright_green()
+            "pylot init".bright_green()
         );
     }
 

@@ -71,7 +71,7 @@ function CollectionCard({
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7 text-foreground-muted hover:text-red-400"
+            className="h-7 w-7 text-foreground-muted hover:text-accent-error"
             onClick={(e) => {
               e.stopPropagation();
               onDelete();
@@ -113,7 +113,7 @@ function DocumentRow({
       <Button
         size="icon"
         variant="ghost"
-        className="h-7 w-7 text-foreground-muted hover:text-red-400"
+        className="h-7 w-7 text-foreground-muted hover:text-accent-error"
         onClick={onDelete}
       >
         <Trash2 className="h-3.5 w-3.5" />
@@ -180,16 +180,87 @@ function UploadModal({
   const [source, setSource] = useState("");
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState<string | null>(null);
+  const [uploadMessage, setUploadMessage] = useState("");
+  const [uploadCompleted, setUploadCompleted] = useState(0);
+  const [uploadTotal, setUploadTotal] = useState(0);
   const addToast = useToastStore((s) => s.addToast);
 
   const handleUpload = async () => {
     if (!title.trim() || !content.trim()) return;
     try {
       setUploading(true);
-      await apiClient.uploadDocument(collectionId, title.trim(), content.trim(), source.trim() || undefined);
-      addToast({ variant: "success", title: "Uploaded", description: `"${title}" added to collection` });
-      onSuccess();
-      onClose();
+      setUploadPhase("starting");
+      setUploadMessage("Starting upload...");
+      setUploadCompleted(0);
+      setUploadTotal(0);
+
+      const backendUrl = process.env.NODE_ENV === 'development'
+        ? 'http://localhost:3001'
+        : getApiBaseUrl();
+
+      const response = await fetch(`${backendUrl}/api/knowledge/documents/upload-stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          collection_id: collectionId,
+          title: title.trim(),
+          content: content.trim(),
+          source: source.trim() || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.statusText}`);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error('No response stream available');
+      }
+
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const eventData = JSON.parse(line.slice(6));
+              setUploadPhase(eventData.phase);
+              setUploadMessage(eventData.message || '');
+              if (eventData.total !== undefined) setUploadTotal(eventData.total);
+              if (eventData.completed !== undefined) setUploadCompleted(eventData.completed);
+
+              if (eventData.phase === 'done') {
+                addToast({
+                  variant: "success",
+                  title: "Uploaded",
+                  description: `"${title}" added to collection (${eventData.document?.chunk_count || 0} chunks)`,
+                });
+                onSuccess();
+                onClose();
+                return;
+              }
+
+              if (eventData.phase === 'error') {
+                throw new Error(eventData.message || 'Upload failed');
+              }
+            } catch (parseErr) {
+              // Ignore non-JSON SSE lines (e.g., comments or keepalives)
+              if (parseErr instanceof SyntaxError) continue;
+              throw parseErr;
+            }
+          }
+        }
+      }
     } catch (e) {
       addToast({
         variant: "error",
@@ -198,6 +269,7 @@ function UploadModal({
       });
     } finally {
       setUploading(false);
+      setUploadPhase(null);
     }
   };
 
@@ -233,7 +305,7 @@ function UploadModal({
           method: 'POST',
           body: formData,
           // Add a longer timeout for large files
-          signal: AbortSignal.timeout(60000), // 60 seconds
+          signal: AbortSignal.timeout(300000), // 5 minutes for large documents
         });
 
         console.log('Response status:', response.status, response.statusText);
@@ -347,7 +419,42 @@ function UploadModal({
               onChange={(e) => setContent(e.target.value)}
               disabled={extracting}
             />
+            {extracting && (
+              <div className="space-y-1.5 rounded-lg bg-background-secondary/50 p-3">
+                <div className="flex items-center gap-2 text-xs text-foreground-muted">
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  <span>Extracting text from document... This may take a moment for large files.</span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-background-secondary">
+                  <div className="h-full w-1/3 animate-indeterminate rounded-full bg-accent" />
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Progress bar during upload */}
+          {uploading && uploadPhase && (
+            <div className="space-y-2 rounded-lg bg-background-secondary/50 p-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-foreground-muted">{uploadMessage}</span>
+                {uploadTotal > 0 && (
+                  <span className="font-mono text-foreground-muted">
+                    {uploadCompleted}/{uploadTotal}
+                  </span>
+                )}
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-background-secondary">
+                {uploadTotal > 0 ? (
+                  <div
+                    className="h-full rounded-full bg-accent transition-all duration-300 ease-out"
+                    style={{ width: `${Math.round((uploadCompleted / uploadTotal) * 100)}%` }}
+                  />
+                ) : (
+                  <div className="h-full w-1/3 animate-pulse rounded-full bg-accent" />
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-end gap-2 pt-1">
             <Button variant="ghost" onClick={onClose} disabled={uploading || extracting}>

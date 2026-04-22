@@ -7,31 +7,35 @@
 #[test]
 fn test_config_loading() {
     // ── Test 1: Defaults ──
-    // Clear env vars that might interfere
+    // Clear env vars that might interfere.
+    // Use set_var("") instead of remove_var so that dotenvy
+    // (which only sets vars not already present) won't re-load
+    // values from .env.  env_opt filters empty strings to None.
     for key in &[
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "LLM_PROVIDER",
         "LLM_MODEL",
-        "GMV_DATA_DIR",
+        "PYLOT_DATA_DIR",
         "AGENT_NAME",
         "AGENT_PERSONA",
         "GOOGLE_CLIENT_ID",
         "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_CALENDAR_ID",
         "TELEGRAM_BOT_TOKEN",
         "TWILIO_ACCOUNT_SID",
-        "GMV_SCHEDULER_ENABLED",
+        "PYLOT_SCHEDULER_ENABLED",
     ] {
-        std::env::remove_var(key);
+        std::env::set_var(key, "");
     }
 
-    let cfg = gmv_agent::config::AppConfig::load()
+    let cfg = pylot::config::AppConfig::load()
         .expect("Config loading should succeed with defaults");
-    assert_eq!(cfg.agent_name, "GMV Agent");
+    assert_eq!(cfg.agent_name, "Pylot");
     assert_eq!(cfg.llm_provider, "openai");
     assert_eq!(cfg.llm_max_tokens, 4096);
-    assert!(!cfg.google_calendar_enabled);
-    assert!(!cfg.telegram_enabled);
+    assert!(cfg.google_calendar_enabled); // enabled = true in default.toml
+    assert!(cfg.telegram_enabled); // enabled = true in default.toml + bot token in .env
     assert!(!cfg.whatsapp_enabled);
     assert!(!cfg.scheduler_enabled);
 
@@ -39,16 +43,15 @@ fn test_config_loading() {
     std::env::set_var("AGENT_NAME", "Test Agent");
     std::env::set_var("LLM_PROVIDER", "anthropic");
     std::env::set_var("ANTHROPIC_API_KEY", "test-key-123");
-    std::env::set_var("LLM_MODEL", ""); // Set empty so provider default is used (dotenvy reloads .env)
+    std::env::set_var("LLM_MODEL", "claude-sonnet-4-20250514");
 
-    let cfg = gmv_agent::config::AppConfig::load().unwrap();
+    let cfg = pylot::config::AppConfig::load().unwrap();
     assert_eq!(cfg.agent_name, "Test Agent");
     assert_eq!(cfg.llm_provider, "anthropic");
     assert_eq!(cfg.anthropic_api_key.as_deref(), Some("test-key-123"));
-    // Anthropic provider should default to a Claude model
     assert!(
         cfg.llm_model.contains("claude"),
-        "Anthropic provider should default to Claude model, got: {}",
+        "Model should be Claude when explicitly set, got: {}",
         cfg.llm_model
     );
 
@@ -60,7 +63,7 @@ fn test_config_loading() {
     // ── Test 3: OpenAI default model ──
     std::env::set_var("LLM_PROVIDER", "openai");
     std::env::remove_var("LLM_MODEL");
-    let cfg = gmv_agent::config::AppConfig::load().unwrap();
+    let cfg = pylot::config::AppConfig::load().unwrap();
     assert!(
         cfg.llm_model.contains("gpt"),
         "OpenAI provider should default to a GPT model, got: {}",
@@ -70,19 +73,19 @@ fn test_config_loading() {
 
     // ── Test 4: Data dir ──
     let tmp = tempfile::tempdir().unwrap();
-    let data_dir = tmp.path().join("gmv_test_data");
-    std::env::set_var("GMV_DATA_DIR", data_dir.to_str().unwrap());
+    let data_dir = tmp.path().join("pylot_test_data");
+    std::env::set_var("PYLOT_DATA_DIR", data_dir.to_str().unwrap());
 
-    let cfg = gmv_agent::config::AppConfig::load().unwrap();
+    let cfg = pylot::config::AppConfig::load().unwrap();
     assert_eq!(cfg.data_dir, data_dir);
     assert!(data_dir.exists());
-    std::env::remove_var("GMV_DATA_DIR");
+    std::env::remove_var("PYLOT_DATA_DIR");
 
     // ── Test 5: Google auto-enable ──
     std::env::set_var("GOOGLE_CLIENT_ID", "test-client-id");
     std::env::set_var("GOOGLE_CLIENT_SECRET", "test-client-secret");
 
-    let cfg = gmv_agent::config::AppConfig::load().unwrap();
+    let cfg = pylot::config::AppConfig::load().unwrap();
     assert!(cfg.google_calendar_enabled);
 
     std::env::remove_var("GOOGLE_CLIENT_ID");
@@ -91,7 +94,7 @@ fn test_config_loading() {
     // ── Test 6: Telegram auto-enable ──
     std::env::set_var("TELEGRAM_BOT_TOKEN", "123:ABC");
 
-    let cfg = gmv_agent::config::AppConfig::load().unwrap();
+    let cfg = pylot::config::AppConfig::load().unwrap();
     assert!(cfg.telegram_enabled);
     assert_eq!(cfg.telegram_bot_token.as_deref(), Some("123:ABC"));
 

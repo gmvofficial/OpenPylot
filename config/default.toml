@@ -1,7 +1,7 @@
-# GMV Agent Default Configuration
+# OpenPylot Default Configuration
 
 [agent]
-name = "GMV Agent"
+name = "Pylot"
 persona = "helpful, concise, professional"
 max_context_messages = 50
 max_tool_iterations = 15
@@ -13,7 +13,7 @@ max_tokens = 4096
 temperature = 0.6
 
 [storage]
-# Data directory (default: ~/.gmv-agent/data)
+# Data directory (default: ~/.pylot/data)
 data_dir = ""
 
 [google_calendar]
@@ -31,4 +31,52 @@ enabled = true
 enabled = false
 
 [scheduler]
+enabled = false
+
+[memory]
+enabled = true
+db_name = "smart_memory.db"
+embedding_model = "text-embedding-3-small"
+auto_extract = true
+extraction_interval = 5
+similarity_threshold = 0.35
+max_memory_context = 10
+max_knowledge_context = 10
+chunk_size = 500
+chunk_overlap = 50
+
+# --- Social Media ---
+[social]
+twitter_enabled = false
+linkedin_enabled = false
+bluesky_enabled = false
+facebook_enabled = false
+instagram_enabled = false
+tiktok_enabled = false
+youtube_enabled = false
+pinterest_enabled = false
+reddit_enabled = false
+threads_enabled = false
+mastodon_enabled = false
+discord_enabled = false
+slack_enabled = false
+medium_enabled = false
+devto_enabled = false
+hashnode_enabled = false
+wordpress_enabled = false
+
+# --- MCP (Model Context Protocol) ---
+[mcp]
+enabled = false
+# config_path = "~/.pylot/mcp-servers.json"
+
+# --- Learning / Auto-improvement ---
+[learning]
+enabled = true
+auto_score = false           # LLM-as-judge auto-scoring (uses extra LLM calls)
+judge_votes = 3              # Number of judge votes per evaluation
+skill_evolution = false      # Auto-generate skills from failure patterns
+
+# --- Marketing Agent ---
+[marketing]
 enabled = false

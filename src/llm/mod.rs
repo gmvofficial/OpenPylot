@@ -1,10 +1,12 @@
 pub mod openai;
 pub mod anthropic;
+pub mod fallback;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use crate::streaming::StreamSender;
 use crate::tools::ToolDefinition;
 
 // ── Message types ────────────────────────────────────────────────────
@@ -16,6 +18,17 @@ pub enum Role {
     User,
     Assistant,
     Tool,
+}
+
+impl std::fmt::Display for Role {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Role::System => write!(f, "system"),
+            Role::User => write!(f, "user"),
+            Role::Assistant => write!(f, "assistant"),
+            Role::Tool => write!(f, "tool"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +105,11 @@ pub enum LlmResponse {
     Text(String),
     /// The model wants to call one or more tools.
     ToolCalls(Vec<ToolCall>),
+    /// The model produced a text response with thinking/reasoning content.
+    TextWithThinking {
+        text: String,
+        thinking: String,
+    },
 }
 
 // ── LLM provider trait ──────────────────────────────────────────────
@@ -104,6 +122,24 @@ pub trait LlmProvider: Send + Sync {
         messages: &[Message],
         tools: &[ToolDefinition],
     ) -> Result<LlmResponse>;
+
+    /// Send messages with streaming — emits StreamEvents to the sender.
+    /// Returns the final assembled response.
+    async fn chat_stream(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDefinition],
+        stream_tx: StreamSender,
+    ) -> Result<LlmResponse> {
+        // Default: fall back to non-streaming
+        let _ = stream_tx;
+        self.chat(messages, tools).await
+    }
+
+    /// Whether this provider supports streaming.
+    fn supports_streaming(&self) -> bool {
+        false
+    }
 
     /// Provider name (for display).
     #[allow(dead_code)]

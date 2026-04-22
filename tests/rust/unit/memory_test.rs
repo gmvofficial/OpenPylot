@@ -2,7 +2,7 @@
 ///
 /// Validates fact storage, conversation summaries, persistence, and context formatting.
 
-use gmv_agent::memory::MemoryStore;
+use pylot::memory::MemoryStore;
 
 // ── Default / empty state ────────────────────────────────────────────
 

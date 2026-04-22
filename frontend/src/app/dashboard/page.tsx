@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import type { AgentStatus, ScheduledJob, LogEntry } from "@/types";
+import type { AgentStatus, ScheduledJob, LogEntry, Skill, ToolDefinition, LearningRule } from "@/types";
 import { apiClient } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/utils";
 import {
@@ -31,6 +31,9 @@ import {
   Play,
   Pause,
   FileText,
+  Wrench,
+  Zap,
+  BrainCircuit,
 } from "lucide-react";
 
 /* -------------------------------------------------------------------------- */
@@ -61,13 +64,13 @@ function StatusCards({ status, loading }: { status: AgentStatus | null; loading:
       label: "Status",
       value: status?.status ?? "unknown",
       icon: Activity,
-      color: status?.status === "running" ? "text-green-400" : "text-amber-400",
+      color: status?.status === "running" ? "text-accent-success" : "text-amber-400",
     },
     {
       label: "Uptime",
       value: status?.uptime ?? "—",
       icon: Clock,
-      color: "text-blue-400",
+      color: "text-accent",
     },
     {
       label: "Model",
@@ -192,11 +195,11 @@ function LogsViewer({ logs, loading }: { logs: LogEntry[]; loading: boolean }) {
   const levelIcon = (level: string) => {
     switch (level) {
       case "error":
-        return <XCircle className="h-3.5 w-3.5 text-red-400" />;
+        return <XCircle className="h-3.5 w-3.5 text-accent-error" />;
       case "warn":
         return <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />;
       case "info":
-        return <CheckCircle2 className="h-3.5 w-3.5 text-blue-400" />;
+        return <CheckCircle2 className="h-3.5 w-3.5 text-accent" />;
       default:
         return <FileText className="h-3.5 w-3.5 text-foreground-muted" />;
     }
@@ -244,6 +247,9 @@ export default function DashboardPage() {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [tools, setTools] = useState<ToolDefinition[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [rules, setRules] = useState<LearningRule[]>([]);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [loadingJobs, setLoadingJobs] = useState(true);
   const [loadingLogs, setLoadingLogs] = useState(true);
@@ -254,14 +260,20 @@ export default function DashboardPage() {
     setLoadingLogs(true);
 
     try {
-      const [s, j, l] = await Promise.allSettled([
+      const [s, j, l, t, sk, lr] = await Promise.allSettled([
         apiClient.getStatus(),
         apiClient.getJobs(),
         apiClient.getLogs({ limit: 50 }),
+        apiClient.getTools(),
+        apiClient.getSkills(),
+        apiClient.getLearningRules(),
       ]);
       if (s.status === "fulfilled") setStatus(s.value);
       if (j.status === "fulfilled") setJobs(j.value);
       if (l.status === "fulfilled") setLogs(l.value);
+      if (t.status === "fulfilled") setTools(t.value);
+      if (sk.status === "fulfilled") setSkills(Array.isArray(sk.value) ? sk.value : []);
+      if (lr.status === "fulfilled") setRules(Array.isArray(lr.value) ? lr.value : []);
     } finally {
       setLoadingStatus(false);
       setLoadingJobs(false);
@@ -305,6 +317,43 @@ export default function DashboardPage() {
 
       {/* Status cards */}
       <StatusCards status={status} loading={loadingStatus} />
+
+      {/* Capabilities summary */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card>
+          <CardContent className="flex items-center gap-4 py-4">
+            <div className="rounded-lg bg-accent/10 p-2.5">
+              <Wrench className="h-5 w-5 text-accent" />
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-foreground-muted">Tools</p>
+              <p className="text-lg font-semibold text-foreground">{tools.length}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-4 py-4">
+            <div className="rounded-lg bg-purple-500/10 p-2.5">
+              <Zap className="h-5 w-5 text-purple-400" />
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-foreground-muted">Skills</p>
+              <p className="text-lg font-semibold text-foreground">{skills.length}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="flex items-center gap-4 py-4">
+            <div className="rounded-lg bg-green-500/10 p-2.5">
+              <BrainCircuit className="h-5 w-5 text-accent-success" />
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-foreground-muted">Learned Rules</p>
+              <p className="text-lg font-semibold text-foreground">{rules.length}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       <Separator />
 

@@ -200,7 +200,7 @@ async fn get_gmail_access_token(
     let mut tokens = match load_gmail_tokens(data_dir) {
         Some(t) => t,
         None => load_gmail_tokens_from_vault().context(
-            "Gmail not authorized. Connect Gmail from the Integrations page or run 'gmv-agent setup gmail'.",
+            "Gmail not authorized. Connect Gmail from the Integrations page or run 'pylot setup gmail'.",
         )?,
     };
 

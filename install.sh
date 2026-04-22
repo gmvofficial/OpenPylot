@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# GMV Agent Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/user/gmv-agent/main/install.sh | bash
+# OpenPylot Installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/user/pylot/main/install.sh | bash
 #
 # Environment variables:
-#   GMV_VERSION   - Specific version to install (default: latest)
-#   GMV_PREFIX    - Installation prefix (default: ~/.gmv-agent)
-#   GMV_NO_INIT   - Skip interactive setup (set to 1)
+#   PYLOT_VERSION   - Specific version to install (default: latest)
+#   PYLOT_PREFIX    - Installation prefix (default: ~/.pylot)
+#   PYLOT_NO_INIT   - Skip interactive setup (set to 1)
 set -euo pipefail
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-REPO="user/gmv-agent"  # TODO: Update with actual GitHub repo
-VERSION="${GMV_VERSION:-latest}"
-PREFIX="${GMV_PREFIX:-$HOME/.gmv-agent}"
+REPO="user/pylot"  # TODO: Update with actual GitHub repo
+VERSION="${PYLOT_VERSION:-latest}"
+PREFIX="${PYLOT_PREFIX:-$HOME/.pylot}"
 BIN_DIR="$PREFIX/bin"
 DATA_DIR="$PREFIX/data"
 LOGS_DIR="$PREFIX/logs"
@@ -78,22 +78,22 @@ resolve_version() {
             | grep '"tag_name"' | head -1 | sed -E 's/.*"v?([^"]+)".*/\1/')
 
         if [[ -z "$VERSION" ]]; then
-            fatal "Could not determine latest version. Set GMV_VERSION manually."
+            fatal "Could not determine latest version. Set PYLOT_VERSION manually."
         fi
     fi
-    info "Installing gmv-agent v${VERSION} for ${TARGET}"
+    info "Installing pylot v${VERSION} for ${TARGET}"
 }
 
 # ─── Download & Install Binary ───────────────────────────────────────────────
 install_binary() {
-    local url="https://github.com/${REPO}/releases/download/v${VERSION}/gmv-agent-${TARGET}.tar.gz"
+    local url="https://github.com/${REPO}/releases/download/v${VERSION}/pylot-${TARGET}.tar.gz"
     local tmp_dir
 
     tmp_dir=$(mktemp -d)
     trap 'rm -rf "$tmp_dir"' EXIT
 
     info "Downloading from ${url}..."
-    if ! curl -fsSL "$url" -o "$tmp_dir/gmv-agent.tar.gz" 2>/dev/null; then
+    if ! curl -fsSL "$url" -o "$tmp_dir/pylot.tar.gz" 2>/dev/null; then
         warn "Pre-built binary not available for ${TARGET}."
         info "Attempting to build from source..."
         build_from_source
@@ -101,19 +101,19 @@ install_binary() {
     fi
 
     info "Extracting..."
-    tar -xzf "$tmp_dir/gmv-agent.tar.gz" -C "$tmp_dir"
+    tar -xzf "$tmp_dir/pylot.tar.gz" -C "$tmp_dir"
 
     # Find the binary
     local binary
-    binary=$(find "$tmp_dir" -name "gmv-agent" -type f | head -1)
+    binary=$(find "$tmp_dir" -name "pylot" -type f | head -1)
     if [[ -z "$binary" ]]; then
         fatal "Binary not found in archive."
     fi
 
     mkdir -p "$BIN_DIR"
-    mv "$binary" "$BIN_DIR/gmv-agent"
-    chmod +x "$BIN_DIR/gmv-agent"
-    success "Binary installed to ${BIN_DIR}/gmv-agent"
+    mv "$binary" "$BIN_DIR/pylot"
+    chmod +x "$BIN_DIR/pylot"
+    success "Binary installed to ${BIN_DIR}/pylot"
 }
 
 # ─── Build from Source (fallback) ────────────────────────────────────────────
@@ -124,25 +124,25 @@ build_from_source() {
         source "$HOME/.cargo/env"
     fi
 
-    info "Building gmv-agent from source (this may take a few minutes)..."
+    info "Building pylot from source (this may take a few minutes)..."
     local tmp_dir
     tmp_dir=$(mktemp -d)
     trap 'rm -rf "$tmp_dir"' EXIT
 
-    git clone --depth 1 --branch "v${VERSION}" "https://github.com/${REPO}.git" "$tmp_dir/gmv-agent" 2>/dev/null \
-        || git clone --depth 1 "https://github.com/${REPO}.git" "$tmp_dir/gmv-agent"
+    git clone --depth 1 --branch "v${VERSION}" "https://github.com/${REPO}.git" "$tmp_dir/pylot" 2>/dev/null \
+        || git clone --depth 1 "https://github.com/${REPO}.git" "$tmp_dir/pylot"
 
-    cd "$tmp_dir/gmv-agent"
+    cd "$tmp_dir/pylot"
 
     # Build frontend if Node.js is available
-    build_frontend "$tmp_dir/gmv-agent/frontend" 2>/dev/null || true
+    build_frontend "$tmp_dir/pylot/frontend" 2>/dev/null || true
 
     cargo build --release
 
     mkdir -p "$BIN_DIR"
-    cp target/release/gmv-agent "$BIN_DIR/gmv-agent"
-    chmod +x "$BIN_DIR/gmv-agent"
-    success "Built and installed to ${BIN_DIR}/gmv-agent"
+    cp target/release/pylot "$BIN_DIR/pylot"
+    chmod +x "$BIN_DIR/pylot"
+    success "Built and installed to ${BIN_DIR}/pylot"
 }
 
 # ─── Build Frontend ──────────────────────────────────────────────────────────
@@ -225,17 +225,17 @@ configure_path() {
     fi
 
     echo "" >> "$shell_rc"
-    echo "# GMV Agent" >> "$shell_rc"
+    echo "# OpenPylot" >> "$shell_rc"
     echo "$path_entry" >> "$shell_rc"
     success "Added ${BIN_DIR} to PATH in ${shell_rc}"
-    warn "Run 'source ${shell_rc}' or open a new terminal to use gmv-agent."
+    warn "Run 'source ${shell_rc}' or open a new terminal to use pylot."
 }
 
 # ─── Run Interactive Setup ────────────────────────────────────────────────────
 run_init() {
-    if [[ "${GMV_NO_INIT:-0}" == "1" ]]; then
-        info "Skipping interactive setup (GMV_NO_INIT=1)."
-        info "Run 'gmv-agent init' later to configure."
+    if [[ "${PYLOT_NO_INIT:-0}" == "1" ]]; then
+        info "Skipping interactive setup (PYLOT_NO_INIT=1)."
+        info "Run 'pylot init' later to configure."
         return
     fi
 
@@ -245,32 +245,32 @@ run_init() {
 
     # Use the binary we just installed
     export PATH="${BIN_DIR}:$PATH"
-    if command -v gmv-agent &>/dev/null; then
-        gmv-agent init
+    if command -v pylot &>/dev/null; then
+        pylot init
     else
-        warn "Could not run 'gmv-agent init'. Run it manually after adding ${BIN_DIR} to PATH."
+        warn "Could not run 'pylot init'. Run it manually after adding ${BIN_DIR} to PATH."
     fi
 }
 
 # ─── Print Summary ────────────────────────────────────────────────────────────
 print_summary() {
     echo ""
-    echo -e "${BOLD}${GREEN}━━━ GMV Agent Installed Successfully ━━━${NC}"
+    echo -e "${BOLD}${GREEN}━━━ OpenPylot Installed Successfully ━━━${NC}"
     echo ""
-    echo -e "  Binary:     ${BIN_DIR}/gmv-agent"
+    echo -e "  Binary:     ${BIN_DIR}/pylot"
     echo -e "  Data:       ${DATA_DIR}"
     echo -e "  Logs:       ${LOGS_DIR}"
     echo -e "  Version:    ${VERSION}"
     echo ""
     echo -e "  ${BOLD}Quick start:${NC}"
-    echo -e "    gmv-agent chat \"Hello!\"        # One-shot query"
-    echo -e "    gmv-agent                       # Interactive mode"
-    echo -e "    gmv-agent serve --foreground    # Start web UI + scheduler"
-    echo -e "    gmv-agent init                  # Re-run setup wizard"
-    echo -e "    gmv-agent doctor                # Check configuration"
+    echo -e "    pylot chat \"Hello!\"        # One-shot query"
+    echo -e "    pylot                       # Interactive mode"
+    echo -e "    pylot serve --foreground    # Start web UI + scheduler"
+    echo -e "    pylot init                  # Re-run setup wizard"
+    echo -e "    pylot doctor                # Check configuration"
     echo ""
     echo -e "  ${BOLD}Web UI:${NC}"
-    echo -e "    Run 'gmv-agent serve' and open http://localhost:3001"
+    echo -e "    Run 'pylot serve' and open http://localhost:3001"
     echo ""
 }
 
@@ -278,7 +278,7 @@ print_summary() {
 main() {
     echo -e "${BOLD}${BLUE}"
     echo "  ╔═══════════════════════════════════╗"
-    echo "  ║       GMV Agent Installer         ║"
+    echo "  ║       OpenPylot Installer         ║"
     echo "  ╚═══════════════════════════════════╝"
     echo -e "${NC}"
 

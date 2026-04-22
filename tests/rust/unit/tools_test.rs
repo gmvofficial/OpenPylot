@@ -2,7 +2,7 @@
 ///
 /// Validates ToolResult construction, ToolRegistry operations, and ToolDefinition serialization.
 
-use gmv_agent::tools::{ToolDefinition, ToolRegistry, ToolResult};
+use pylot::tools::{ToolDefinition, ToolRegistry, ToolResult};
 
 // ── ToolResult ───────────────────────────────────────────────────────
 

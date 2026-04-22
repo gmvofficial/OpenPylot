@@ -5,6 +5,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use super::ApiState;
 
@@ -381,6 +382,232 @@ fn check_vault_integration_status() -> Vec<IntegrationInfo> {
             }
             .into(),
             connected_at: if get("slack.bot_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        // ── Social Media Platforms ────────────────────────────────────
+        IntegrationInfo {
+            service: "twitter".into(),
+            status: if get("twitter.api_key").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("twitter.api_key").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "linkedin".into(),
+            status: if get("linkedin.access_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("linkedin.access_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "facebook".into(),
+            status: if get("facebook.access_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("facebook.access_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "instagram".into(),
+            status: if get("instagram.access_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("instagram.access_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "bluesky".into(),
+            status: if get("bluesky.app_password").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("bluesky.app_password").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "tiktok".into(),
+            status: if get("tiktok.access_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("tiktok.access_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "youtube".into(),
+            status: if get("youtube.access_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("youtube.access_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "mastodon".into(),
+            status: if get("mastodon.access_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("mastodon.access_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "discord".into(),
+            status: if get("discord.bot_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("discord.bot_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "reddit".into(),
+            status: if get("reddit.access_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("reddit.access_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "pinterest".into(),
+            status: if get("pinterest.access_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("pinterest.access_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "threads".into(),
+            status: if get("threads.access_token").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("threads.access_token").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        // ── Publishing Platforms ──────────────────────────────────────
+        IntegrationInfo {
+            service: "medium".into(),
+            status: if get("medium.api_key").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("medium.api_key").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "devto".into(),
+            status: if get("devto.api_key").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("devto.api_key").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "hashnode".into(),
+            status: if get("hashnode.api_key").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("hashnode.api_key").is_some() {
+                Some(now.clone())
+            } else {
+                None
+            },
+        },
+        IntegrationInfo {
+            service: "wordpress".into(),
+            status: if get("wordpress.username").is_some() {
+                "connected"
+            } else {
+                "disconnected"
+            }
+            .into(),
+            connected_at: if get("wordpress.username").is_some() {
                 Some(now)
             } else {
                 None
@@ -415,6 +642,79 @@ pub struct CredentialField {
 #[derive(Deserialize)]
 pub struct ConnectRequest {
     credentials: Option<serde_json::Value>,
+}
+
+/// Generic connect handler for social/publishing platforms.
+/// `fields` is &[(vault_key_suffix, label, field_type, required, placeholder)]
+fn connect_social_credentials(
+    service: &str,
+    body: Option<&ConnectRequest>,
+    fields: &[(&str, &str, &str, bool, &str)],
+) -> Result<Json<ApiResponse<ConnectResult>>, (StatusCode, Json<ApiError>)> {
+    let creds = body.and_then(|b| b.credentials.as_ref());
+
+    // Check if all required fields are present
+    let has_required = fields.iter().filter(|f| f.3).all(|f| {
+        creds
+            .and_then(|c| c.get(f.0))
+            .and_then(|v| v.as_str())
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+    });
+
+    if has_required {
+        let vault_path = crate::secrets::default_secrets_path();
+        let mut vault = crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Vault error: {e}"),
+            )
+        })?;
+
+        for &(key, _, _, _, _) in fields {
+            if let Some(val) = creds.and_then(|c| c.get(key)).and_then(|v| v.as_str()) {
+                if !val.is_empty() {
+                    let vault_key = format!("{}.{}", service, key);
+                    vault.set(&vault_key, val).map_err(|e| {
+                        err(StatusCode::INTERNAL_SERVER_ERROR, format!("Set error: {e}"))
+                    })?;
+                }
+            }
+        }
+
+        vault.save().map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Save error: {e}"),
+            )
+        })?;
+        tracing::info!("{} integration connected via API", service);
+
+        Ok(ok(ConnectResult {
+            auth_url: None,
+            message: format!("{} connected successfully", service),
+            requires_credentials: false,
+            credential_fields: vec![],
+        }))
+    } else {
+        Ok(ok(ConnectResult {
+            auth_url: None,
+            message: format!("{} requires credentials", service),
+            requires_credentials: true,
+            credential_fields: fields
+                .iter()
+                .map(
+                    |&(name, label, ft, required, placeholder)| CredentialField {
+                        name: name.into(),
+                        label: label.into(),
+                        field_type: ft.into(),
+                        required,
+                        placeholder: placeholder.into(),
+                    },
+                )
+                .collect(),
+        }))
+    }
 }
 
 pub async fn connect_integration(
@@ -778,6 +1078,144 @@ pub async fn connect_integration(
             }
         }
 
+        // ── Social Media Platforms ────────────────────────────────────
+        "twitter" => connect_social_credentials(
+            &service,
+            body.as_ref(),
+            &[
+                ("api_key", "API Key", "password", true, "your-api-key"),
+                (
+                    "api_secret",
+                    "API Secret",
+                    "password",
+                    true,
+                    "your-api-secret",
+                ),
+                (
+                    "access_token",
+                    "Access Token",
+                    "password",
+                    true,
+                    "your-access-token",
+                ),
+                (
+                    "access_token_secret",
+                    "Access Token Secret",
+                    "password",
+                    true,
+                    "your-access-token-secret",
+                ),
+            ],
+        ),
+
+        "linkedin" | "facebook" | "instagram" | "tiktok" | "youtube" | "reddit" | "pinterest"
+        | "threads" => connect_social_credentials(
+            &service,
+            body.as_ref(),
+            &[(
+                "access_token",
+                "Access Token",
+                "password",
+                true,
+                "your-access-token",
+            )],
+        ),
+
+        "bluesky" => connect_social_credentials(
+            &service,
+            body.as_ref(),
+            &[
+                ("handle", "Handle", "text", true, "you.bsky.social"),
+                (
+                    "app_password",
+                    "App Password",
+                    "password",
+                    true,
+                    "xxxx-xxxx-xxxx-xxxx",
+                ),
+            ],
+        ),
+
+        "mastodon" => connect_social_credentials(
+            &service,
+            body.as_ref(),
+            &[
+                (
+                    "instance_url",
+                    "Instance URL",
+                    "text",
+                    true,
+                    "https://mastodon.social",
+                ),
+                (
+                    "access_token",
+                    "Access Token",
+                    "password",
+                    true,
+                    "your-access-token",
+                ),
+            ],
+        ),
+
+        "discord" => connect_social_credentials(
+            &service,
+            body.as_ref(),
+            &[
+                ("bot_token", "Bot Token", "password", true, "your-bot-token"),
+                (
+                    "channel_id",
+                    "Default Channel ID",
+                    "text",
+                    false,
+                    "1234567890",
+                ),
+            ],
+        ),
+
+        // ── Publishing Platforms ──────────────────────────────────────
+        "medium" | "devto" => connect_social_credentials(
+            &service,
+            body.as_ref(),
+            &[("api_key", "API Key", "password", true, "your-api-key")],
+        ),
+
+        "hashnode" => connect_social_credentials(
+            &service,
+            body.as_ref(),
+            &[
+                ("api_key", "API Key", "password", true, "your-api-key"),
+                (
+                    "publication_id",
+                    "Publication ID",
+                    "text",
+                    false,
+                    "your-publication-id",
+                ),
+            ],
+        ),
+
+        "wordpress" => connect_social_credentials(
+            &service,
+            body.as_ref(),
+            &[
+                (
+                    "site_url",
+                    "Site URL",
+                    "text",
+                    true,
+                    "https://your-site.wordpress.com",
+                ),
+                ("username", "Username", "text", true, "admin"),
+                (
+                    "app_password",
+                    "Application Password",
+                    "password",
+                    true,
+                    "xxxx xxxx xxxx xxxx",
+                ),
+            ],
+        ),
+
         _ => Err(err(
             StatusCode::BAD_REQUEST,
             format!("Unknown service: {}", service),
@@ -798,7 +1236,7 @@ async fn handle_google_oauth_callback(
     let code = crate::oauth::wait_for_callback(oauth_config.redirect_port, expected_state).await?;
 
     // Exchange code for tokens
-    let tokens = crate::oauth::exchange_code(oauth_config, &code, &redirect_uri).await?;
+    let tokens = crate::oauth::exchange_code(oauth_config, &code, &redirect_uri, None).await?;
 
     let expires_in = tokens.expires_in.unwrap_or(3600) as i64;
     let expiry = chrono::Utc::now() + chrono::Duration::seconds(expires_in);
@@ -814,7 +1252,7 @@ async fn handle_google_oauth_callback(
 
     // Also write the JSON token files that the calendar/gmail tools read at runtime.
     // This ensures all code paths (vault-based and file-based) stay in sync.
-    let data_dir = crate::secrets::gmv_home_dir().join("data");
+    let data_dir = crate::secrets::pylot_home_dir().join("data");
     std::fs::create_dir_all(&data_dir).ok();
 
     let token_json = serde_json::json!({
@@ -1048,7 +1486,7 @@ pub async fn test_integration(
                 match client
                     .get("https://api.github.com/user")
                     .header("Authorization", format!("Bearer {}", token))
-                    .header("User-Agent", "gmv-agent")
+                    .header("User-Agent", "pylot")
                     .send()
                     .await
                 {
@@ -1203,6 +1641,29 @@ pub struct MemoryFactResponse {
 pub async fn get_memory(
     State(state): State<ApiState>,
 ) -> Json<ApiResponse<Vec<MemoryFactResponse>>> {
+    // Use SmartMemory if available
+    if let Some(ref smart_mem) = state.smart_memory {
+        let user_id = &state.config.agent_name;
+        match smart_mem.get_all_memories(user_id).await {
+            Ok(memories) => {
+                let facts: Vec<MemoryFactResponse> = memories
+                    .into_iter()
+                    .map(|m| MemoryFactResponse {
+                        id: m.id,
+                        content: m.content,
+                        category: m.category.unwrap_or_else(|| "general".into()),
+                        created_at: Some(m.created_at),
+                    })
+                    .collect();
+                return ok(facts);
+            }
+            Err(e) => {
+                tracing::warn!("SmartMemory get_all failed, falling back to legacy: {e}");
+            }
+        }
+    }
+
+    // Fallback to legacy memory store
     let data_dir = &state.config.data_dir;
     let memory = crate::memory::MemoryStore::load(data_dir).unwrap_or_default();
 
@@ -1228,10 +1689,23 @@ pub async fn update_memory_fact(
 ) -> Json<ApiResponse<bool>> {
     let content = body.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
+    // Use SmartMemory if available and id is not legacy format
+    if let Some(ref smart_mem) = state.smart_memory {
+        if !id.starts_with("fact_") {
+            match smart_mem.update_memory(&id, content).await {
+                Ok(_) => return ok(true),
+                Err(e) => {
+                    tracing::warn!("SmartMemory update failed: {e}");
+                    return ok(false);
+                }
+            }
+        }
+    }
+
+    // Fallback to legacy memory store
     let data_dir = &state.config.data_dir;
     let mut memory = crate::memory::MemoryStore::load(data_dir).unwrap_or_default();
 
-    // Parse index from id like "fact_0"
     if let Some(idx_str) = id.strip_prefix("fact_") {
         if let Ok(idx) = idx_str.parse::<usize>() {
             if memory.update_fact_at(idx, content) {
@@ -1248,6 +1722,20 @@ pub async fn delete_memory_fact(
     Path(id): Path<String>,
     State(state): State<ApiState>,
 ) -> Json<ApiResponse<bool>> {
+    // Use SmartMemory if available and id is not legacy format
+    if let Some(ref smart_mem) = state.smart_memory {
+        if !id.starts_with("fact_") {
+            match smart_mem.forget(&id).await {
+                Ok(_) => return ok(true),
+                Err(e) => {
+                    tracing::warn!("SmartMemory delete failed: {e}");
+                    return ok(false);
+                }
+            }
+        }
+    }
+
+    // Fallback to legacy memory store
     let data_dir = &state.config.data_dir;
     let mut memory = crate::memory::MemoryStore::load(data_dir).unwrap_or_default();
 
@@ -1347,7 +1835,7 @@ pub async fn get_logs(
     Query(params): Query<LogsQuery>,
 ) -> Json<ApiResponse<Vec<LogEntryResponse>>> {
     let limit = params.limit.unwrap_or(50);
-    let home = crate::secrets::gmv_home_dir();
+    let home = crate::secrets::pylot_home_dir();
     let log_file = home.join("logs").join("agent.log");
 
     if !log_file.exists() {
@@ -1435,7 +1923,7 @@ pub async fn get_setup_status(
     let whatsapp_configured = (config.twilio_account_sid.is_some()
         && config.twilio_auth_token.is_some())
         || (vault_has("twilio.account_sid") && vault_has("twilio.auth_token"));
-    let agent_name_set = config.agent_name != "GMV Agent" && !config.agent_name.is_empty();
+    let agent_name_set = config.agent_name != "Pylot" && !config.agent_name.is_empty();
 
     ok(SetupStatusResponse {
         llm_configured,
@@ -1802,7 +2290,13 @@ pub async fn delete_collection(
     documents.retain(|d| d.collection_id != id);
     save_json_vec(&doc_path, &documents);
 
+    // Clean up embedded chunks from smart memory
     if removed {
+        if let Some(ref smart_mem) = state.smart_memory {
+            if let Err(e) = smart_mem.delete_knowledge_by_collection(&id).await {
+                tracing::warn!("Failed to clean up chunks for collection '{}': {e}", id);
+            }
+        }
         tracing::info!("Knowledge collection deleted: {}", id);
     }
     ok(removed)
@@ -1879,12 +2373,28 @@ pub async fn delete_document(
     let data_dir = &state.config.data_dir;
     let path = knowledge_documents_path(data_dir);
     let mut documents: Vec<KnowledgeDocument> = load_json_vec(&path);
+
+    // Find the document before removing so we can clean up chunks
+    let doc_info = documents
+        .iter()
+        .find(|d| d.id == id)
+        .map(|d| (d.title.clone(), d.source.clone()));
+
     let before = documents.len();
     documents.retain(|d| d.id != id);
     let removed = documents.len() < before;
     save_json_vec(&path, &documents);
 
+    // Clean up embedded chunks from smart memory
     if removed {
+        if let (Some((title, source)), Some(ref smart_mem)) = (doc_info, &state.smart_memory) {
+            if let Err(e) = smart_mem
+                .delete_knowledge_by_document(&title, &source)
+                .await
+            {
+                tracing::warn!("Failed to clean up chunks for '{}': {e}", title);
+            }
+        }
         tracing::info!("Knowledge document deleted: {}", id);
     }
     ok(removed)
@@ -1910,9 +2420,44 @@ pub async fn search_knowledge(
     State(state): State<ApiState>,
     Json(body): Json<SearchKnowledgeRequest>,
 ) -> Json<ApiResponse<Vec<SearchResultResponse>>> {
+    let limit = body.limit.unwrap_or(10);
+
+    // Use semantic search via SmartMemory if available
+    if let Some(ref smart_mem) = state.smart_memory {
+        match smart_mem.search_knowledge(&body.query, limit).await {
+            Ok(results) => {
+                let items: Vec<SearchResultResponse> = results
+                    .into_iter()
+                    .map(|entry| {
+                        let title = entry.title.as_deref().unwrap_or("Unknown").to_string();
+                        let doc_id = entry
+                            .metadata
+                            .as_ref()
+                            .and_then(|m| m.get("collection_id"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        SearchResultResponse {
+                            chunk: entry.content.clone(),
+                            content: entry.content,
+                            document_title: title,
+                            document_id: doc_id,
+                            score: entry.score as f64,
+                        }
+                    })
+                    .collect();
+                return ok(items);
+            }
+            Err(e) => {
+                tracing::warn!("Semantic search failed, falling back to keyword: {e}");
+                // Fall through to keyword search
+            }
+        }
+    }
+
+    // Fallback: keyword-based scoring
     let data_dir = &state.config.data_dir;
     let documents: Vec<KnowledgeDocument> = load_json_vec(&knowledge_documents_path(data_dir));
-    let limit = body.limit.unwrap_or(10);
     let query_lower = body.query.to_lowercase();
     let query_words: Vec<&str> = query_lower.split_whitespace().collect();
 
@@ -2005,6 +2550,21 @@ pub async fn upload_document(
     documents.push(new_doc.clone());
     save_json_vec(&path, &documents);
 
+    // Save extracted content to a .txt file
+    let knowledge_texts_dir = data_dir.join("knowledge_texts");
+    if let Err(e) = std::fs::create_dir_all(&knowledge_texts_dir) {
+        tracing::warn!("Failed to create knowledge_texts dir: {e}");
+    } else {
+        let txt_filename = format!("{}.txt", body.title);
+        let txt_path = knowledge_texts_dir.join(&txt_filename);
+        match std::fs::write(&txt_path, &body.content) {
+            Ok(_) => tracing::info!("Saved document text to {}", txt_path.display()),
+            Err(e) => tracing::warn!("Failed to save text file '{}': {e}", txt_path.display()),
+        }
+    }
+
+    // TODO: Database indexing skipped for now
+
     tracing::info!("Knowledge document uploaded: {}", body.title);
 
     ok(DocumentResponse {
@@ -2016,6 +2576,94 @@ pub async fn upload_document(
         size,
         created_at: new_doc.created_at,
     })
+}
+
+/// Upload a document with SSE progress reporting during chunk indexing.
+pub async fn upload_document_stream(
+    State(state): State<ApiState>,
+    Json(body): Json<UploadDocumentRequest>,
+) -> axum::response::sse::Sse<
+    impl tokio_stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+> {
+    use axum::response::sse::{Event, KeepAlive};
+    use tokio::sync::mpsc;
+    use tokio_stream::wrappers::ReceiverStream;
+
+    let (tx, rx) = mpsc::channel::<Result<Event, std::convert::Infallible>>(64);
+
+    // Spawn the indexing work in a background task
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        let data_dir = &state_clone.config.data_dir;
+        let path = knowledge_documents_path(data_dir);
+        let mut documents: Vec<KnowledgeDocument> = load_json_vec(&path);
+
+        let new_doc = KnowledgeDocument {
+            id: uuid::Uuid::new_v4().to_string(),
+            collection_id: body.collection_id.clone(),
+            title: body.title.clone(),
+            content: body.content.clone(),
+            source: body.source.unwrap_or_else(|| "upload".into()),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+
+        let size = new_doc.content.len();
+        documents.push(new_doc.clone());
+        save_json_vec(&path, &documents);
+
+        // Save extracted content to a .txt file
+        let _ = tx
+            .send(Ok(Event::default().data(
+                serde_json::json!({"phase": "saving", "message": "Saving document text..."})
+                    .to_string(),
+            )))
+            .await;
+
+        let knowledge_texts_dir = data_dir.join("knowledge_texts");
+        if let Err(e) = std::fs::create_dir_all(&knowledge_texts_dir) {
+            tracing::warn!("Failed to create knowledge_texts dir: {e}");
+        } else {
+            let txt_filename = format!("{}.txt", body.title);
+            let txt_path = knowledge_texts_dir.join(&txt_filename);
+            match std::fs::write(&txt_path, &body.content) {
+                Ok(_) => tracing::info!("Saved document text to {}", txt_path.display()),
+                Err(e) => tracing::warn!("Failed to save text file '{}': {e}", txt_path.display()),
+            }
+        }
+
+        let chunk_count = if body.content.is_empty() {
+            0
+        } else {
+            (body.content.len() / 500) + 1
+        };
+
+        // TODO: Database indexing skipped for now
+
+        // Send completion
+        let _ = tx
+            .send(Ok(Event::default().data(
+                serde_json::json!({
+                    "phase": "done",
+                    "message": "Upload complete!",
+                    "document": {
+                        "id": new_doc.id,
+                        "collection_id": new_doc.collection_id,
+                        "title": new_doc.title,
+                        "source": new_doc.source,
+                        "chunk_count": chunk_count,
+                        "size": size,
+                        "created_at": new_doc.created_at,
+                    }
+                })
+                .to_string(),
+            )))
+            .await;
+    });
+
+    // Convert mpsc receiver into an SSE stream
+    let sse_stream = ReceiverStream::new(rx);
+
+    axum::response::sse::Sse::new(sse_stream).keep_alive(KeepAlive::default())
 }
 
 /// Setup WhatsApp (Twilio) credentials
@@ -2133,7 +2781,7 @@ use axum::extract::Multipart;
 
 /// Better multipart file upload handler using axum's Multipart extractor
 pub async fn extract_document_multipart(
-    State(_state): State<ApiState>,
+    State(state): State<ApiState>,
     mut multipart: Multipart,
 ) -> Result<Json<ApiResponse<DocumentContent>>, (StatusCode, Json<ApiError>)> {
     tracing::info!("Received document extraction request");
@@ -2215,6 +2863,22 @@ pub async fn extract_document_multipart(
                 filename,
                 content.content.len()
             );
+
+            // Save extracted content to .txt file immediately so it's not lost
+            let knowledge_texts_dir = state.config.data_dir.join("knowledge_texts");
+            if let Err(e) = std::fs::create_dir_all(&knowledge_texts_dir) {
+                tracing::warn!("Failed to create knowledge_texts dir: {e}");
+            } else {
+                let txt_filename = format!("{}.txt", filename);
+                let txt_path = knowledge_texts_dir.join(&txt_filename);
+                match std::fs::write(&txt_path, &content.content) {
+                    Ok(_) => tracing::info!("Saved extracted text to {}", txt_path.display()),
+                    Err(e) => {
+                        tracing::warn!("Failed to save text file '{}': {e}", txt_path.display())
+                    }
+                }
+            }
+
             Ok(ok(content))
         }
         Err(e) => {
@@ -2225,4 +2889,808 @@ pub async fn extract_document_multipart(
             ))
         }
     }
+}
+
+// ── Skills API ───────────────────────────────────────────────────────
+
+pub async fn list_skills_api(
+    State(state): State<ApiState>,
+) -> Json<ApiResponse<Vec<serde_json::Value>>> {
+    let registry = crate::skills::SkillRegistry::load_all(None);
+    let all = registry.all_skills();
+
+    // Load per-skill config (enabled/disabled state)
+    let config_path = state.config.data_dir.join("skills-config.json");
+    let configs: std::collections::HashMap<String, crate::skills::SkillEntryConfig> =
+        if config_path.exists() {
+            std::fs::read_to_string(&config_path)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default()
+        } else {
+            std::collections::HashMap::new()
+        };
+
+    let mut skills: Vec<serde_json::Value> = all
+        .iter()
+        .map(|s| {
+            let enabled = configs
+                .get(&s.meta.name)
+                .and_then(|c| c.enabled)
+                .unwrap_or(true);
+            serde_json::json!({
+                "name": s.meta.name,
+                "description": s.meta.description,
+                "category": s.meta.category.as_deref().unwrap_or("other"),
+                "triggers": s.meta.tags,
+                "examples": s.meta.examples,
+                "enabled": enabled,
+            })
+        })
+        .collect();
+
+    // Sort by category then name for consistent ordering
+    skills.sort_by(|a, b| {
+        let cat_a = a["category"].as_str().unwrap_or("");
+        let cat_b = b["category"].as_str().unwrap_or("");
+        cat_a.cmp(cat_b).then_with(|| {
+            let name_a = a["name"].as_str().unwrap_or("");
+            let name_b = b["name"].as_str().unwrap_or("");
+            name_a.cmp(name_b)
+        })
+    });
+
+    ok(skills)
+}
+
+/// GET /skills/status — Full status report (for frontend dashboard).
+/// Returns eligibility, missing deps, security scan, install options.
+pub async fn skills_status_api(
+    State(_state): State<ApiState>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let registry = crate::skills::SkillRegistry::load_all(None);
+    let all_skills = registry.all_skills();
+    let entry_configs = std::collections::HashMap::new(); // TODO: load from config file
+    let report = crate::skills::build_status_report(&all_skills, &entry_configs);
+    ok(serde_json::to_value(report).unwrap_or_default())
+}
+
+/// POST /skills/update — Enable/disable a skill or set its API key.
+#[derive(Deserialize)]
+pub struct SkillUpdateRequest {
+    pub skill_key: String,
+    pub enabled: Option<bool>,
+    pub api_key: Option<String>,
+}
+
+pub async fn skills_update_api(
+    State(state): State<ApiState>,
+    Json(body): Json<SkillUpdateRequest>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    // Write to config file at data_dir/skills-config.json
+    let config_path = state.config.data_dir.join("skills-config.json");
+    let mut configs: std::collections::HashMap<String, crate::skills::SkillEntryConfig> =
+        if config_path.exists() {
+            std::fs::read_to_string(&config_path)
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_default()
+        } else {
+            std::collections::HashMap::new()
+        };
+
+    let entry = configs.entry(body.skill_key.clone()).or_default();
+    if let Some(enabled) = body.enabled {
+        entry.enabled = Some(enabled);
+    }
+    if let Some(api_key) = body.api_key {
+        entry.api_key = if api_key.is_empty() { None } else { Some(api_key) };
+    }
+
+    match serde_json::to_string_pretty(&configs) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&config_path, json) {
+                return ok(serde_json::json!({ "error": format!("Failed to save: {}", e) }));
+            }
+            ok(serde_json::json!({ "status": "ok", "skill_key": body.skill_key }))
+        }
+        Err(e) => ok(serde_json::json!({ "error": format!("Serialization error: {}", e) })),
+    }
+}
+
+/// DELETE /skills/delete/{name} — Delete a skill from disk.
+pub async fn skill_delete_api(
+    State(_state): State<ApiState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    // Find the skill directory across all sources
+    let mut removed = false;
+    let categories: &[&str] = &["agentic", "coding", "communication", "productivity", "research"];
+
+    // Try local skills dir first (~/.pylot/skills/)
+    let local_dir = crate::skills::SkillLoader::local_skills_dir();
+    if let Some(dir) = local_dir {
+        for category in categories {
+            let skill_path = dir.join(category).join(&name);
+            if skill_path.exists() {
+                if let Err(e) = std::fs::remove_dir_all(&skill_path) {
+                    return ok(serde_json::json!({ "error": format!("Failed to delete: {}", e) }));
+                }
+                removed = true;
+                break;
+            }
+        }
+    }
+
+    // Try bundled skills dir
+    if !removed {
+        if let Some(dir) = crate::skills::SkillLoader::bundled_skills_dir() {
+            for category in categories {
+                let skill_path = dir.join(category).join(&name);
+                if skill_path.exists() {
+                    if let Err(e) = std::fs::remove_dir_all(&skill_path) {
+                        return ok(serde_json::json!({ "error": format!("Failed to delete: {}", e) }));
+                    }
+                    removed = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if removed {
+        ok(serde_json::json!({ "status": "ok", "deleted": name }))
+    } else {
+        ok(serde_json::json!({ "error": format!("Skill '{}' not found", name) }))
+    }
+}
+
+/// GET /skills/:name — Get a single skill's full details.
+pub async fn skill_detail_api(
+    State(_state): State<ApiState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let registry = crate::skills::SkillRegistry::load_all(None);
+    match registry.get(&name) {
+        Some(skill) => {
+            ok(serde_json::json!({
+                "name": skill.meta.name,
+                "description": skill.meta.description,
+                "version": skill.meta.version,
+                "category": skill.meta.category,
+                "tags": skill.meta.tags,
+                "author": skill.meta.author,
+                "os": skill.meta.os,
+                "source": format!("{:?}", skill.source),
+                "source_path": skill.source_path.display().to_string(),
+                "content": skill.content,
+                "requires": skill.meta.requires.as_ref().map(|r| serde_json::json!({
+                    "bins": r.bins,
+                    "env": r.env,
+                    "tools": r.tools,
+                })),
+            }))
+        }
+        None => ok(serde_json::json!({ "error": "Skill not found" })),
+    }
+}
+
+/// POST /skills/scan — Security scan a skill directory.
+#[derive(Deserialize)]
+pub struct SkillScanRequest {
+    pub skill_name: String,
+}
+
+pub async fn skill_scan_api(
+    State(_state): State<ApiState>,
+    Json(body): Json<SkillScanRequest>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let registry = crate::skills::SkillRegistry::load_all(None);
+    match registry.get(&body.skill_name) {
+        Some(skill) => {
+            if let Some(skill_dir) = skill.source_path.parent() {
+                let summary = crate::skills::scan_skill_directory(skill_dir);
+                ok(serde_json::to_value(summary).unwrap_or_default())
+            } else {
+                ok(serde_json::json!({ "error": "Cannot resolve skill directory" }))
+            }
+        }
+        None => ok(serde_json::json!({ "error": "Skill not found" })),
+    }
+}
+
+// ── Learning API ─────────────────────────────────────────────────────
+
+pub async fn list_learned_rules(
+    State(state): State<ApiState>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let db_path = state.config.data_dir.join("learning.db");
+    match crate::learning::PromptEvolution::new(&db_path.to_string_lossy()) {
+        Ok(pe) => match pe.active_rules() {
+            Ok(rules) => {
+                let rules_json: Vec<serde_json::Value> = rules
+                    .iter()
+                    .map(|r| {
+                        serde_json::json!({
+                            "id": r.id,
+                            "rule_text": r.rule_text,
+                            "confidence": r.confidence,
+                            "success_count": r.success_count,
+                            "failure_count": r.failure_count,
+                        })
+                    })
+                    .collect();
+                ok(serde_json::json!({ "rules": rules_json }))
+            }
+            Err(e) => ok(serde_json::json!({ "error": e })),
+        },
+        Err(e) => ok(serde_json::json!({ "error": e })),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct FeedbackRequest {
+    pub session_id: String,
+    pub turn_id: String,
+    pub rating: i8,
+    pub comment: Option<String>,
+}
+
+pub async fn submit_feedback(
+    State(state): State<ApiState>,
+    Json(body): Json<FeedbackRequest>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let db_path = state.config.data_dir.join("learning.db");
+    match crate::learning::PromptEvolution::new(&db_path.to_string_lossy()) {
+        Ok(pe) => {
+            let fb = crate::learning::FeedbackProcessor::create_feedback(
+                &body.session_id,
+                &body.turn_id,
+                body.rating,
+                body.comment,
+            );
+            match crate::learning::FeedbackProcessor::process(&pe, &fb) {
+                Ok(()) => ok(serde_json::json!({ "status": "ok" })),
+                Err(e) => ok(serde_json::json!({ "error": e })),
+            }
+        }
+        Err(e) => ok(serde_json::json!({ "error": e })),
+    }
+}
+
+// ── MCP API ──────────────────────────────────────────────────────────
+
+pub async fn list_mcp_servers(
+    State(state): State<ApiState>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref registry) = state.mcp_registry {
+        let reg = registry.lock().await;
+        let servers = reg.server_names();
+        let count = servers.len();
+        ok(serde_json::json!({ "servers": servers, "count": count }))
+    } else {
+        ok(serde_json::json!({ "servers": [], "count": 0, "message": "MCP not enabled" }))
+    }
+}
+
+pub async fn list_mcp_tools(
+    State(state): State<ApiState>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref registry) = state.mcp_registry {
+        let reg = registry.lock().await;
+        let tools = reg.list_tools();
+        let count = tools.len();
+        let items: Vec<serde_json::Value> = tools.iter().map(|(prefixed, def)| {
+            serde_json::json!({
+                "name": prefixed,
+                "description": def.description,
+                "server": def.server_name,
+            })
+        }).collect();
+        ok(serde_json::json!({ "tools": items, "count": count }))
+    } else {
+        ok(serde_json::json!({ "tools": [], "count": 0, "message": "MCP not enabled" }))
+    }
+}
+
+// ── Social Media API ─────────────────────────────────────────────────
+
+pub async fn list_social_posts(
+    State(state): State<ApiState>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref sm) = state.social_manager {
+        let manager = sm.lock().await;
+        let posts = manager.list_posts();
+        let count = posts.len();
+        ok(serde_json::json!({ "posts": posts, "count": count }))
+    } else {
+        ok(serde_json::json!({ "posts": [], "count": 0, "message": "Social not enabled" }))
+    }
+}
+
+#[derive(Deserialize)]
+pub struct CreatePostRequest {
+    pub platform: String,
+    pub content: String,
+    pub hashtags: Option<Vec<String>>,
+    pub campaign_id: Option<String>,
+}
+
+pub async fn create_social_post(
+    State(state): State<ApiState>,
+    Json(body): Json<CreatePostRequest>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref sm) = state.social_manager {
+        let mut manager = sm.lock().await;
+        let platform = match crate::social::Platform::from_str(&body.platform) {
+            Some(p) => p,
+            None => return ok(serde_json::json!({"error": format!("Unknown platform: {}", body.platform)})),
+        };
+        let post_id = manager.create_post(
+            platform,
+            &body.content,
+            body.hashtags.unwrap_or_default(),
+            body.campaign_id,
+        );
+        ok(serde_json::json!({
+            "id": post_id,
+            "platform": body.platform,
+            "content": body.content,
+            "status": "draft"
+        }))
+    } else {
+        ok(serde_json::json!({"error": "Social media manager not enabled"}))
+    }
+}
+
+pub async fn publish_social_post(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref sm) = state.social_manager {
+        let mut manager = sm.lock().await;
+        match manager.publish_post(&id).await {
+            Ok(platform_id) => ok(serde_json::json!({
+                "id": id,
+                "platform_post_id": platform_id,
+                "status": "published"
+            })),
+            Err(e) => ok(serde_json::json!({"error": e})),
+        }
+    } else {
+        ok(serde_json::json!({"error": "Social media manager not enabled"}))
+    }
+}
+
+pub async fn list_campaigns(
+    State(state): State<ApiState>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref sm) = state.social_manager {
+        let manager = sm.lock().await;
+        let campaigns = manager.list_campaigns();
+        let count = campaigns.len();
+        ok(serde_json::json!({ "campaigns": campaigns, "count": count }))
+    } else {
+        ok(serde_json::json!({ "campaigns": [], "count": 0 }))
+    }
+}
+
+#[derive(Deserialize)]
+pub struct CreateCampaignRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub platforms: Vec<String>,
+}
+
+pub async fn create_campaign(
+    State(state): State<ApiState>,
+    Json(body): Json<CreateCampaignRequest>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref sm) = state.social_manager {
+        let mut manager = sm.lock().await;
+        let platforms: Vec<crate::social::Platform> = body.platforms.iter()
+            .filter_map(|p| crate::social::Platform::from_str(p))
+            .collect();
+        let desc = body.description.as_deref().unwrap_or("");
+        let id = manager.create_campaign(&body.name, desc, platforms);
+        ok(serde_json::json!({
+            "id": id,
+            "name": body.name,
+            "status": "planning"
+        }))
+    } else {
+        ok(serde_json::json!({"error": "Social media manager not enabled"}))
+    }
+}
+
+pub async fn list_social_platforms(
+    State(state): State<ApiState>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref sm) = state.social_manager {
+        let manager = sm.lock().await;
+        let connected: Vec<String> = manager.connected_platforms().iter().map(|p| format!("{:?}", p)).collect();
+        ok(serde_json::json!({
+            "connected": connected,
+            "count": connected.len()
+        }))
+    } else {
+        ok(serde_json::json!({ "connected": [], "count": 0 }))
+    }
+}
+
+pub async fn connect_social_platform(
+    State(_state): State<ApiState>,
+    Path(platform): Path<String>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    // For MVP, return instructions for setting up credentials
+    ok(serde_json::json!({
+        "platform": platform,
+        "status": "pending",
+        "message": format!("Set up {} credentials via 'pylot init --only social-{}' or environment variables. See docs/SOCIAL-PLATFORMS.md", platform, platform)
+    }))
+}
+
+pub async fn disconnect_social_platform(
+    State(_state): State<ApiState>,
+    Path(platform): Path<String>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    ok(serde_json::json!({
+        "platform": platform,
+        "status": "disconnected"
+    }))
+}
+
+// ── Sub-Agent API ────────────────────────────────────────────────────
+
+pub async fn list_sub_agents(
+    State(state): State<ApiState>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref orch) = state.orchestrator {
+        let agents = orch.list().await;
+        let count = agents.len();
+        let items: Vec<serde_json::Value> = agents.iter().map(|a| {
+            serde_json::json!({
+                "id": a.config.id,
+                "name": a.config.name,
+                "agent_type": format!("{:?}", a.config.agent_type),
+                "status": format!("{:?}", a.status),
+                "result": a.result,
+                "error": a.error,
+                "started_at": a.started_at,
+                "completed_at": a.completed_at,
+            })
+        }).collect();
+        ok(serde_json::json!({ "agents": items, "count": count }))
+    } else {
+        ok(serde_json::json!({ "agents": [], "count": 0, "message": "Sub-agents not enabled" }))
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SpawnAgentRequest {
+    pub name: String,
+    pub task: String,
+    pub model: Option<String>,
+}
+
+pub async fn spawn_sub_agent(
+    State(state): State<ApiState>,
+    Json(body): Json<SpawnAgentRequest>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref orch) = state.orchestrator {
+        let config = crate::sub_agents::types::SubAgentConfig {
+            name: body.name.clone(),
+            ..Default::default()
+        };
+        let llm = Arc::clone(&state.llm);
+        let tools = crate::tools::build_sub_agent_tools(state.config.data_dir.clone());
+        let skills = crate::skills::SkillRegistry::load_all(None);
+        let data_dir = state.config.data_dir.clone();
+
+        match orch.spawn(config, body.task.clone(), llm, tools, skills, data_dir, None).await {
+            Ok(id) => ok(serde_json::json!({
+                "id": id,
+                "name": body.name,
+                "status": "Running",
+            })),
+            Err(e) => ok(serde_json::json!({"error": e.to_string()})),
+        }
+    } else {
+        ok(serde_json::json!({"error": "Sub-agent system not enabled"}))
+    }
+}
+
+pub async fn get_sub_agent(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref orch) = state.orchestrator {
+        match orch.get_state(&id).await {
+            Some(s) => ok(serde_json::json!({
+                "id": id,
+                "name": s.config.name,
+                "agent_type": format!("{:?}", s.config.agent_type),
+                "status": format!("{:?}", s.status),
+                "result": s.result,
+                "error": s.error,
+                "started_at": s.started_at,
+                "completed_at": s.completed_at,
+            })),
+            None => ok(serde_json::json!({"error": format!("Sub-agent not found: {id}")})),
+        }
+    } else {
+        ok(serde_json::json!({"error": "Sub-agent system not enabled"}))
+    }
+}
+
+pub async fn cancel_sub_agent(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref orch) = state.orchestrator {
+        match orch.cancel(&id).await {
+            Ok(_) => ok(serde_json::json!({ "id": id, "status": "cancelled" })),
+            Err(e) => ok(serde_json::json!({"error": e.to_string()})),
+        }
+    } else {
+        ok(serde_json::json!({"error": "Sub-agent system not enabled"}))
+    }
+}
+
+// ── Agent Presets (plug-and-play manifests) ──────────────────────────
+
+/// List agent presets loaded from bundled/, ~/.pylot/agents/, and workspace ./agents/.
+pub async fn list_agent_presets(
+    State(_state): State<ApiState>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let workspace = std::env::current_dir().ok();
+    let registry = crate::sub_agents::AgentManifestRegistry::load_all(workspace.as_deref());
+    let items: Vec<serde_json::Value> = registry
+        .all()
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "name": m.name,
+                "description": m.description,
+                "agent_type": m.agent_type,
+                "model_override": m.model_override,
+                "allowed_tools": m.allowed_tools,
+                "timeout_secs": m.timeout_secs,
+                "max_iterations": m.max_iterations,
+                "source": m.source.as_str(),
+                "source_path": m.source_path.as_ref().map(|p| p.display().to_string()),
+            })
+        })
+        .collect();
+    let dir = crate::sub_agents::AgentManifestRegistry::user_agents_dir()
+        .map(|p| p.display().to_string());
+    ok(serde_json::json!({
+        "presets": items,
+        "count": registry.len(),
+        "user_dir": dir,
+    }))
+}
+
+/// Get the full details (incl. system_prompt) of a single preset.
+pub async fn get_agent_preset(
+    State(_state): State<ApiState>,
+    Path(name): Path<String>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let workspace = std::env::current_dir().ok();
+    let registry = crate::sub_agents::AgentManifestRegistry::load_all(workspace.as_deref());
+    match registry.get(&name) {
+        Some(m) => ok(serde_json::json!({
+            "name": m.name,
+            "description": m.description,
+            "agent_type": m.agent_type,
+            "system_prompt": m.system_prompt,
+            "model_override": m.model_override,
+            "allowed_tools": m.allowed_tools,
+            "timeout_secs": m.timeout_secs,
+            "max_iterations": m.max_iterations,
+            "source": m.source.as_str(),
+            "source_path": m.source_path.as_ref().map(|p| p.display().to_string()),
+        })),
+        None => ok(serde_json::json!({ "error": format!("Preset '{name}' not found") })),
+    }
+}
+
+// ── Memory v2 API ────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct MemoryV2SearchRequest {
+    pub query: String,
+    pub limit: Option<usize>,
+}
+
+pub async fn memory_v2_search(
+    State(state): State<ApiState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let user_id = params.get("user_id").map(|s| s.as_str()).unwrap_or("default");
+    if let Some(ref store) = state.memory_v2_store {
+        let units = store.list(user_id, None, 50).unwrap_or_default();
+        let items: Vec<serde_json::Value> = units.iter().map(|u| {
+            serde_json::json!({
+                "id": u.id,
+                "type": u.memory_type.as_str(),
+                "content": u.content,
+                "importance": u.importance,
+                "created_at": u.created_at,
+            })
+        }).collect();
+        ok(serde_json::json!({ "units": items, "count": items.len() }))
+    } else {
+        ok(serde_json::json!({ "units": [], "count": 0, "message": "Memory v2 not enabled" }))
+    }
+}
+
+pub async fn memory_v2_list(
+    State(state): State<ApiState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let user_id = params.get("user_id").map(|s| s.as_str()).unwrap_or("default");
+    if let Some(ref store) = state.memory_v2_store {
+        let units = store.list(user_id, None, 100).unwrap_or_default();
+        let items: Vec<serde_json::Value> = units.iter().map(|u| {
+            serde_json::json!({
+                "id": u.id,
+                "type": u.memory_type.as_str(),
+                "content": u.content,
+                "summary": u.summary,
+                "importance": u.importance,
+                "confidence": u.confidence,
+                "access_count": u.access_count,
+                "entities": u.entities,
+                "topics": u.topics,
+                "tags": u.tags,
+                "created_at": u.created_at,
+                "updated_at": u.updated_at,
+            })
+        }).collect();
+        ok(serde_json::json!({ "units": items, "count": items.len() }))
+    } else {
+        ok(serde_json::json!({ "units": [], "count": 0, "message": "Memory v2 not enabled" }))
+    }
+}
+
+// ── SSE Streaming Chat ──────────────────────────────────────────────
+
+pub async fn chat_stream(
+    State(state): State<ApiState>,
+    Json(body): Json<ChatRequest>,
+) -> axum::response::Sse<
+    impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+> {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    use std::time::Duration;
+    use tokio_stream::wrappers::UnboundedReceiverStream;
+
+    let conv_id = body
+        .conversation_id
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let msg_id = uuid::Uuid::new_v4().to_string();
+
+    // Persist user message immediately so it's not lost if the connection drops.
+    state.conversations.add_message(
+        &conv_id,
+        super::StoredMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: "user".into(),
+            content: body.message.clone(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        },
+    );
+
+    // SSE bridge channel — unbounded so the LLM is never blocked by a slow reader.
+    let (sse_tx, sse_rx) =
+        tokio::sync::mpsc::unbounded_channel::<Result<Event, std::convert::Infallible>>();
+
+    let agent = state.agent.clone();
+    let conversations = state.conversations.clone();
+    let user_msg = body.message.clone();
+
+    tokio::spawn(async move {
+        // Signal that the agent is working.
+        let _ = sse_tx.send(Ok(Event::default().event("thinking").data("true")));
+
+        // Open a stream channel for the LLM provider.
+        let (stream_tx, mut stream_rx) = crate::streaming::stream_channel();
+
+        // Clone sse_tx so we can forward stream events while still owning sse_tx below.
+        let sse_forward = sse_tx.clone();
+
+        // Spawn a task that forwards StreamEvents → SSE events.
+        let forward_handle = tokio::spawn(async move {
+            while let Some(event) = stream_rx.recv().await {
+                let json = match serde_json::to_string(&event) {
+                    Ok(j) => j,
+                    Err(_) => continue,
+                };
+                let sse_event = match &event {
+                    crate::streaming::StreamEvent::TextDelta { .. } => {
+                        Event::default().event("text_delta").data(&json)
+                    }
+                    crate::streaming::StreamEvent::ToolUseStart { .. } => {
+                        Event::default().event("tool_use_start").data(&json)
+                    }
+                    crate::streaming::StreamEvent::ToolInputDelta { .. } => {
+                        Event::default().event("tool_input_delta").data(&json)
+                    }
+                    crate::streaming::StreamEvent::ToolResult { .. } => {
+                        Event::default().event("tool_result").data(&json)
+                    }
+                    crate::streaming::StreamEvent::Thinking { .. } => {
+                        Event::default().event("thinking").data(&json)
+                    }
+                    crate::streaming::StreamEvent::Usage { .. } => {
+                        Event::default().event("usage").data(&json)
+                    }
+                    crate::streaming::StreamEvent::MessageStop => {
+                        Event::default().event("message_stop").data(&json)
+                    }
+                    crate::streaming::StreamEvent::Error { .. } => {
+                        Event::default().event("error").data(&json)
+                    }
+                };
+                if sse_forward.send(Ok(sse_event)).is_err() {
+                    // Client disconnected.
+                    break;
+                }
+            }
+        });
+
+        // Enable streaming on the agent and attach our sender.
+        let full_response = {
+            let mut agent_guard = agent.lock().await;
+            agent_guard.set_streaming(true);
+            agent_guard.set_stream_sender(stream_tx);
+            let result = agent_guard.chat(&user_msg).await;
+            // Clear the stream sender so the channel closes and the
+            // forward task can terminate (recv() returns None).
+            agent_guard.clear_stream_sender();
+            result
+        };
+
+        // Wait for the forwarding task to drain the channel.
+        let _ = forward_handle.await;
+
+        match full_response {
+            Ok(response) => {
+                // Persist the completed assistant message.
+                conversations.add_message(
+                    &conv_id,
+                    super::StoredMessage {
+                        id: msg_id.clone(),
+                        role: "assistant".into(),
+                        content: response.clone(),
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                    },
+                );
+
+                // Final "done" event carries the conversation id and message id so the
+                // frontend can update its state without a separate API call.
+                let done_payload = serde_json::json!({
+                    "conversationId": conv_id,
+                    "messageId": msg_id,
+                    "content": response,
+                });
+                let _ = sse_tx.send(Ok(Event::default()
+                    .event("done")
+                    .data(&done_payload.to_string())));
+            }
+            Err(e) => {
+                let err_payload = serde_json::json!({ "message": format!("{e}") }).to_string();
+                let _ = sse_tx.send(Ok(Event::default().event("error").data(&err_payload)));
+            }
+        }
+    });
+
+    let stream = UnboundedReceiverStream::new(sse_rx);
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("ping"),
+    )
 }

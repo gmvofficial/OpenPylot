@@ -2,7 +2,7 @@
 /**
  * CLI entry point for the Node.js package.
  *
- * Delegates to the native gmv-agent binary, so all CLI
+ * Delegates to the native pylot binary, so all CLI
  * commands work identically to the Rust binary.
  */
 
@@ -13,7 +13,7 @@ function main() {
   const args = process.argv.slice(2);
 
   try {
-    execFileSync('gmv-agent', args, {
+    execFileSync('pylot', args, {
       stdio: 'inherit',
       env: process.env,
     });
@@ -23,10 +23,10 @@ function main() {
     }
 
     console.error(
-      'Error: gmv-agent binary not found on PATH.\n' +
+      'Error: pylot binary not found on PATH.\n' +
         'Install it first:\n' +
-        '  curl -fsSL https://get.gmvagent.com/install.sh | sh\n' +
-        '  # or: cargo install gmv-agent'
+        '  curl -fsSL https://get.openpylot.dev/install.sh | sh\n' +
+        '  # or: cargo install pylot'
     );
     process.exit(1);
   }

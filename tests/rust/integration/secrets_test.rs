@@ -5,7 +5,7 @@ fn test_secrets_vault_roundtrip() {
     let path = tmp.path().join("test_secrets.enc");
 
     // Create vault
-    let mut vault = gmv_agent::secrets::SecretsVault::open(&path, None).unwrap();
+    let mut vault = pylot::secrets::SecretsVault::open(&path, None).unwrap();
     vault.set("llm.openai.api_key", "sk-test-123").unwrap();
     vault.set("telegram.bot_token", "bot:token").unwrap();
     vault.save().unwrap();
@@ -13,7 +13,7 @@ fn test_secrets_vault_roundtrip() {
     assert!(path.exists(), "Vault file should be created");
 
     // Re-open and verify
-    let vault2 = gmv_agent::secrets::SecretsVault::open(&path, None).unwrap();
+    let vault2 = pylot::secrets::SecretsVault::open(&path, None).unwrap();
     assert_eq!(
         vault2.get("llm.openai.api_key").as_deref(),
         Some("sk-test-123")
@@ -30,18 +30,18 @@ fn test_secrets_vault_delete() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("test_delete.enc");
 
-    let mut vault = gmv_agent::secrets::SecretsVault::open(&path, None).unwrap();
+    let mut vault = pylot::secrets::SecretsVault::open(&path, None).unwrap();
     vault.set("llm.openai.api_key", "sk-delete-me").unwrap();
     vault.set("telegram.bot_token", "bot:delete").unwrap();
     vault.save().unwrap();
 
     // Re-open, delete, save
-    let mut vault = gmv_agent::secrets::SecretsVault::open(&path, None).unwrap();
+    let mut vault = pylot::secrets::SecretsVault::open(&path, None).unwrap();
     vault.delete("llm.openai.api_key").unwrap();
     vault.save().unwrap();
 
     // Verify
-    let vault = gmv_agent::secrets::SecretsVault::open(&path, None).unwrap();
+    let vault = pylot::secrets::SecretsVault::open(&path, None).unwrap();
     assert!(vault.get("llm.openai.api_key").is_none());
     assert_eq!(
         vault.get("telegram.bot_token").as_deref(),
@@ -55,7 +55,7 @@ fn test_secrets_vault_encrypted() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("test_encrypted.enc");
 
-    let mut vault = gmv_agent::secrets::SecretsVault::open(&path, None).unwrap();
+    let mut vault = pylot::secrets::SecretsVault::open(&path, None).unwrap();
     vault
         .set("llm.openai.api_key", "super-secret-value-12345")
         .unwrap();
@@ -74,11 +74,11 @@ fn test_secrets_vault_missing_key() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("test_missing.enc");
 
-    let mut vault = gmv_agent::secrets::SecretsVault::open(&path, None).unwrap();
+    let mut vault = pylot::secrets::SecretsVault::open(&path, None).unwrap();
     vault.set("llm.openai.api_key", "sk-exists").unwrap();
     vault.save().unwrap();
 
-    let vault = gmv_agent::secrets::SecretsVault::open(&path, None).unwrap();
+    let vault = pylot::secrets::SecretsVault::open(&path, None).unwrap();
     assert!(vault.get("github.access_token").is_none());
 }
 
@@ -88,10 +88,10 @@ fn test_secrets_has_llm_configured() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("test_llm.enc");
 
-    let vault = gmv_agent::secrets::SecretsVault::open(&path, None).unwrap();
+    let vault = pylot::secrets::SecretsVault::open(&path, None).unwrap();
     assert!(!vault.has_llm_configured());
 
-    let mut vault2 = gmv_agent::secrets::SecretsVault::open(&path, None).unwrap();
+    let mut vault2 = pylot::secrets::SecretsVault::open(&path, None).unwrap();
     vault2.set("llm.openai.api_key", "sk-test").unwrap();
     assert!(vault2.has_llm_configured());
 }

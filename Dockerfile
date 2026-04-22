@@ -1,5 +1,5 @@
 # ── Build stage ───────────────────────────────────────────────────────
-FROM rust:1.82-slim-bookworm AS builder
+FROM rust:1.85-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev ca-certificates \
@@ -11,7 +11,7 @@ COPY src/ src/
 COPY config/ config/
 
 # Build in release mode
-RUN cargo build --release --bin gmv-agent
+RUN cargo build --release --bin pylot
 
 # ── Runtime stage ────────────────────────────────────────────────────
 FROM debian:bookworm-slim
@@ -21,25 +21,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN useradd -m -s /bin/bash gmv
+RUN useradd -m -s /bin/bash pylot
 
-COPY --from=builder /build/target/release/gmv-agent /usr/local/bin/gmv-agent
-COPY --from=builder /build/config /home/gmv/.gmv-agent/config
+COPY --from=builder /build/target/release/pylot /usr/local/bin/pylot
+COPY --from=builder /build/config /home/pylot/.pylot/config
 
-RUN mkdir -p /home/gmv/.gmv-agent/data \
-             /home/gmv/.gmv-agent/logs \
-             /home/gmv/.gmv-agent/plugins \
-    && chown -R gmv:gmv /home/gmv/.gmv-agent
+RUN mkdir -p /home/pylot/.pylot/data \
+             /home/pylot/.pylot/logs \
+             /home/pylot/.pylot/plugins \
+    && chown -R pylot:pylot /home/pylot/.pylot
 
-USER gmv
-WORKDIR /home/gmv
+USER pylot
+WORKDIR /home/pylot
 
-ENV HOME=/home/gmv
-ENV GMV_DATA_DIR=/home/gmv/.gmv-agent/data
+ENV HOME=/home/pylot
+ENV PYLOT_DATA_DIR=/home/pylot/.pylot/data
 
 # Webhook server port
 EXPOSE 8443
 
 # Default: run in serve mode (scheduler + webhooks)
-ENTRYPOINT ["gmv-agent"]
+ENTRYPOINT ["pylot"]
 CMD ["serve", "--foreground"]

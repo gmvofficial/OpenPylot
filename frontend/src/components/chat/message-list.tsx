@@ -40,7 +40,7 @@ export function MessageList() {
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="h-full overflow-y-auto scrollbar-thin px-4 py-6"
+        className="h-full overflow-y-auto scrollbar-thin px-4 pr-6 py-6"
       >
         <div className="max-w-chat mx-auto space-y-6">
           {isEmpty && <EmptyState />}
@@ -76,16 +76,16 @@ export function MessageList() {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
+    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-200px)] text-center">
       <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-accent/10 mb-6">
         <span className="text-3xl">🤖</span>
       </div>
       <h3 className="text-xl font-semibold text-foreground mb-2">
-        How can I help you today?
+        Ask anything
       </h3>
       <p className="text-sm text-foreground-secondary max-w-md mb-8">
         I can manage your calendar, send emails, take notes, set reminders,
-        and more. Just ask!
+        search the web, and more.
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg w-full">
         {[

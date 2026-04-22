@@ -1,4 +1,4 @@
-"""Integration tests for the Python GMV Agent bindings.
+"""Integration tests for the Python Pylot bindings.
 
 These tests validate module-level behavior, the async wrapper,
 and the setup helpers. They test the integration between Python
@@ -13,51 +13,51 @@ import sys
 # ── Module imports ────────────────────────────────────────────────────
 
 class TestModuleImports:
-    def test_import_gmv_agent(self):
-        import gmv_agent
-        assert hasattr(gmv_agent, "GMVAgent")
-        assert hasattr(gmv_agent, "Config")
+    def test_import_pylot(self):
+        import pylot
+        assert hasattr(pylot, "PylotAgent")
+        assert hasattr(pylot, "Config")
 
     def test_version_exists(self):
-        import gmv_agent
-        assert hasattr(gmv_agent, "__version__")
-        assert gmv_agent.__version__ == "0.2.0"
+        import pylot
+        assert hasattr(pylot, "__version__")
+        assert pylot.__version__ == "0.3.0"
 
     def test_all_exports(self):
-        import gmv_agent
-        assert "GMVAgent" in gmv_agent.__all__
-        assert "Config" in gmv_agent.__all__
+        import pylot
+        assert "PylotAgent" in pylot.__all__
+        assert "Config" in pylot.__all__
 
     def test_native_module_version(self):
-        from gmv_agent._native import __version__
-        assert __version__ == "0.2.0"
+        from pylot._native import __version__
+        assert __version__ == "0.3.0"
 
 
-# ── AsyncGMVAgent ─────────────────────────────────────────────────────
+# ── AsyncPylotAgent ─────────────────────────────────────────────────────
 
 class TestAsyncAgent:
     def test_import_async_agent(self):
-        from gmv_agent.agent import AsyncGMVAgent
-        assert AsyncGMVAgent is not None
+        from pylot.agent import AsyncPylotAgent
+        assert AsyncPylotAgent is not None
 
     def test_async_agent_has_create(self):
-        from gmv_agent.agent import AsyncGMVAgent
-        assert hasattr(AsyncGMVAgent, "create")
+        from pylot.agent import AsyncPylotAgent
+        assert hasattr(AsyncPylotAgent, "create")
 
     def test_async_agent_has_chat(self):
-        from gmv_agent.agent import AsyncGMVAgent
-        assert hasattr(AsyncGMVAgent, "chat")
+        from pylot.agent import AsyncPylotAgent
+        assert hasattr(AsyncPylotAgent, "chat")
 
     def test_async_agent_has_register_tool(self):
-        from gmv_agent.agent import AsyncGMVAgent
-        assert hasattr(AsyncGMVAgent, "register_tool")
+        from pylot.agent import AsyncPylotAgent
+        assert hasattr(AsyncPylotAgent, "register_tool")
 
 
 # ── Setup helpers ─────────────────────────────────────────────────────
 
 class TestSetupHelpers:
     def test_import_setup_module(self):
-        from gmv_agent.setup import run_init, run_add, run_doctor
+        from pylot.setup import run_init, run_add, run_doctor
         assert callable(run_init)
         assert callable(run_add)
         assert callable(run_doctor)
@@ -67,7 +67,7 @@ class TestSetupHelpers:
 
 class TestCLI:
     def test_cli_module_importable(self):
-        from gmv_agent.cli import main
+        from pylot.cli import main
         assert callable(main)
 
 
@@ -76,7 +76,7 @@ class TestCLI:
 class TestConfigRoundTrip:
     def test_config_survives_agent_creation(self):
         """Config values should be preserved when creating an agent."""
-        from gmv_agent import Config, GMVAgent
+        from pylot import Config, PylotAgent
 
         cfg = Config(
             llm_provider="anthropic",
@@ -85,12 +85,12 @@ class TestConfigRoundTrip:
         )
 
         # Create agent from config (tests the Rust boundary crossing)
-        agent = GMVAgent(cfg)
+        agent = PylotAgent(cfg)
         assert agent is not None
 
     def test_config_fields_independent(self):
         """Modifying one Config instance should not affect another."""
-        from gmv_agent import Config
+        from pylot import Config
 
         cfg1 = Config(llm_provider="openai")
         cfg2 = Config(llm_provider="anthropic")
@@ -106,11 +106,11 @@ class TestConfigRoundTrip:
 
 class TestToolRegistration:
     def test_register_tool_valid_schema(self):
-        from gmv_agent import Config, GMVAgent
+        from pylot import Config, PylotAgent
         import json
 
         cfg = Config(openai_api_key="sk-test")
-        agent = GMVAgent(cfg)
+        agent = PylotAgent(cfg)
 
         schema = json.dumps({
             "type": "object",
@@ -124,20 +124,20 @@ class TestToolRegistration:
         agent.register_tool("test_tool", schema, lambda x: x)
 
     def test_register_tool_invalid_schema_raises(self):
-        from gmv_agent import Config, GMVAgent
+        from pylot import Config, PylotAgent
 
         cfg = Config()
-        agent = GMVAgent(cfg)
+        agent = PylotAgent(cfg)
 
         with pytest.raises(Exception):
             agent.register_tool("bad_tool", "not valid json{{{", lambda x: x)
 
     def test_register_tool_non_callable_raises(self):
-        from gmv_agent import Config, GMVAgent
+        from pylot import Config, PylotAgent
         import json
 
         cfg = Config()
-        agent = GMVAgent(cfg)
+        agent = PylotAgent(cfg)
 
         schema = json.dumps({"type": "object"})
 

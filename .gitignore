@@ -53,6 +53,7 @@ build/
 
 # ── docs ───────────────────────────────────────────────
 extra_docs/
+plan_docs/
 
 # ── IDE ───────────────────────────────────────────────────────────────
 .idea/
@@ -60,3 +61,9 @@ extra_docs/
 *.swp
 *.swo
 *~
+
+# ── Extra ─────────────────────────────────────────────────
+openclaw-main/
+MetaClaw-main/
+claw-code-main/
+extra_repos/

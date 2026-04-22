@@ -358,7 +358,7 @@ mod tests {
 
     fn test_state() -> WebhookState {
         WebhookState {
-            data_dir: PathBuf::from("/tmp/gmv-test"),
+            data_dir: PathBuf::from("/tmp/pylot-test"),
             events: Arc::new(Mutex::new(Vec::new())),
             telegram_bot_token: None,
             telegram_chat_id: None,
@@ -441,11 +441,11 @@ mod tests {
         let payload = serde_json::json!({
             "action": "opened",
             "sender": { "login": "testuser" },
-            "repository": { "full_name": "GMV-AI/gmv-agent" },
+            "repository": { "full_name": "openpylot/pylot" },
             "pull_request": {
                 "title": "Add webhook support",
                 "number": 42,
-                "html_url": "https://github.com/GMV-AI/gmv-agent/pull/42"
+                "html_url": "https://github.com/openpylot/pylot/pull/42"
             }
         });
 

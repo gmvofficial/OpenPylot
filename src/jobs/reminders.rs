@@ -116,26 +116,20 @@ pub fn format_meeting_reminder(meeting: &UpcomingMeeting) -> String {
 
 /// Check user reminders (from reminders.json) that are due and
 /// haven't been alerted yet. Returns formatted notification strings.
-pub fn check_due_reminders(data_dir: &Path) -> Result<Vec<String>> {
+/// A due reminder with its original details.
+#[derive(Debug, Clone)]
+pub struct DueReminder {
+    pub title: String,
+    pub description: String,
+}
+
+pub fn check_due_reminders(data_dir: &Path) -> Result<Vec<DueReminder>> {
     let reminders_path = data_dir.join("reminders.json");
     if !reminders_path.exists() {
         return Ok(Vec::new());
     }
 
     let content = std::fs::read_to_string(&reminders_path)?;
-
-    #[derive(Deserialize)]
-    struct Reminder {
-        id: String,
-        title: String,
-        due_at: String,
-        #[serde(default)]
-        description: Option<String>,
-        #[serde(default)]
-        completed: bool,
-        #[serde(default)]
-        notified: bool,
-    }
 
     #[derive(Serialize, Deserialize)]
     struct RemindersFile {
@@ -144,7 +138,7 @@ pub fn check_due_reminders(data_dir: &Path) -> Result<Vec<String>> {
 
     let file: RemindersFile = serde_json::from_str(&content)?;
     let now = Utc::now();
-    let mut notifications = Vec::new();
+    let mut due_reminders = Vec::new();
     let mut updated = false;
 
     let mut reminders_raw = file.reminders.clone();
@@ -168,7 +162,7 @@ pub fn check_due_reminders(data_dir: &Path) -> Result<Vec<String>> {
             continue;
         }
 
-        let due_str = match obj.get("due_at").and_then(|v| v.as_str()) {
+        let due_str = match obj.get("remind_at").and_then(|v| v.as_str()) {
             Some(s) => s,
             None => continue,
         };
@@ -178,17 +172,15 @@ pub fn check_due_reminders(data_dir: &Path) -> Result<Vec<String>> {
                 let title = obj
                     .get("title")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("Reminder");
-                let desc = obj
+                    .unwrap_or("Reminder")
+                    .to_string();
+                let description = obj
                     .get("description")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                    .unwrap_or("")
+                    .to_string();
 
-                let mut msg = format!("🔔 Reminder: {}", title);
-                if !desc.is_empty() {
-                    msg.push_str(&format!("\n   {}", desc));
-                }
-                notifications.push(msg);
+                due_reminders.push(DueReminder { title, description });
 
                 // Mark as notified
                 obj.insert("notified".to_string(), serde_json::Value::Bool(true));
@@ -203,7 +195,7 @@ pub fn check_due_reminders(data_dir: &Path) -> Result<Vec<String>> {
         std::fs::write(&reminders_path, content)?;
     }
 
-    Ok(notifications)
+    Ok(due_reminders)
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -291,7 +283,7 @@ mod tests {
                 {
                     "id": "r1",
                     "title": "Buy groceries",
-                    "due_at": past,
+                    "remind_at": past,
                     "completed": false,
                     "notified": false
                 }
@@ -306,6 +298,6 @@ mod tests {
 
         let result = check_due_reminders(tmp.path()).unwrap();
         assert_eq!(result.len(), 1);
-        assert!(result[0].contains("Buy groceries"));
+        assert!(result[0].title.contains("Buy groceries"));
     }
 }

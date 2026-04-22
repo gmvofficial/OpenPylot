@@ -55,12 +55,17 @@ const config: Config = {
           "0%, 80%, 100%": { transform: "scale(0)" },
           "40%": { transform: "scale(1)" },
         },
+        indeterminate: {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(400%)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 0.2s ease-out",
         "slide-in-right": "slide-in-right 0.3s ease-out",
         pulse: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
         "thinking-dot": "thinking-dot 1.4s ease-in-out infinite",
+        indeterminate: "indeterminate 1.5s ease-in-out infinite",
       },
     },
   },

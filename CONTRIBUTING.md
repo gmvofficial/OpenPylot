@@ -1,6 +1,6 @@
-# Contributing to GMV Agent
+# Contributing to OpenPylot
 
-Thank you for your interest in contributing to GMV Agent! This guide will help you get started.
+Thank you for your interest in contributing to OpenPylot! This guide will help you get started.
 
 ## Table of Contents
 
@@ -17,8 +17,8 @@ Thank you for your interest in contributing to GMV Agent! This guide will help y
 1. **Fork** the repository on GitHub
 2. **Clone** your fork locally:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/gmv-agent.git
-   cd gmv-agent
+   git clone https://github.com/YOUR_USERNAME/pylot.git
+   cd pylot
    ```
 3. **Create a branch** for your work:
    ```bash
@@ -40,8 +40,8 @@ Thank you for your interest in contributing to GMV Agent! This guide will help y
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Clone and build
-git clone https://github.com/GMV-AI/gmv-agent.git
-cd gmv-agent
+git clone https://github.com/openpylot/pylot.git
+cd pylot
 cargo build
 
 # Run tests
@@ -67,38 +67,42 @@ pre-commit install
 
 ```
 src/
-├── main.rs          # CLI entry point, command dispatch
-├── lib.rs           # Library crate exports for tests
-├── agent.rs         # Agent orchestrator (LLM + tool loop)
-├── config.rs        # Configuration loading (TOML + secrets vault + env)
-├── context.rs       # Conversation context management
-├── memory.rs        # Persistent conversation memory
-├── secrets.rs       # Encrypted credential vault (AES-256-GCM)
-├── init.rs          # Interactive setup wizard
-├── scheduler.rs     # Embedded cron job scheduler
-├── terminal.rs      # Interactive terminal (REPL)
-├── telegram_bot.rs  # Telegram bot interface
-├── llm/
-│   ├── mod.rs       # LLM trait + types
-│   ├── openai.rs    # OpenAI provider
-│   └── anthropic.rs # Anthropic provider
-├── tools/
-│   ├── mod.rs       # Tool registry + trait
-│   ├── calendar.rs  # Google Calendar integration
-│   ├── notes.rs     # Notes management
-│   ├── reminder.rs  # Reminder management
-│   ├── telegram.rs  # Telegram messaging tool
-│   └── whatsapp.rs  # WhatsApp messaging tool
-└── jobs/
-    ├── mod.rs           # Background jobs module
-    ├── rsvp_monitor.rs  # RSVP tracking for calendar events
-    └── reminders.rs     # Meeting reminder notifications
+├── main.rs              # CLI entry point (clap)
+├── lib.rs               # Library crate (re-exports all modules)
+├── agent.rs             # Agent loop: LLM ↔ tool calls
+├── config.rs            # Layered config (env > vault > TOML > defaults)
+├── context.rs           # Conversation context management
+├── context_builder.rs   # Context building utilities
+├── document_chunker.rs  # Document chunking for knowledge base
+├── memory.rs            # Persistent memory store (JSON)
+├── smart_memory.rs      # SQLite + embeddings semantic memory
+├── secrets.rs           # AES-256-GCM encrypted vault
+├── traits.rs            # Core traits
+├── init.rs              # Setup wizard, doctor, status
+├── terminal.rs          # Interactive REPL
+├── scheduler.rs         # Tokio cron scheduler
+├── oauth.rs             # Browser-based OAuth 2.0 flows
+├── telegram_bot.rs      # Telegram long-polling bot
+├── api/                 # Axum REST API + WebSocket handlers
+├── llm/                 # LLM provider trait + OpenAI, Anthropic
+├── tools/               # Tool registry + built-in tools
+├── webhooks/            # Webhook endpoint handlers
+├── jobs/                # Background job definitions
+├── skills/              # Skill system (SKILL.md loader, matcher)
+├── memory_v2/           # Memory v2 (structured memory types)
+├── streaming/           # Token streaming (WebSocket, SSE)
+├── sub_agents/          # Sub-agent orchestration
+├── mcp/                 # Model Context Protocol client
+├── learning/            # Auto-scorer, prompt evolution, skill evolver
+├── social/              # Social media manager (17 providers)
+└── marketing/           # Marketing agent (campaigns, content)
 
-config/
-└── default.toml     # Default configuration
-
-tests/               # Integration tests
-docs/                # Documentation
+frontend/                # Next.js web dashboard
+python/                  # Python SDK (PyO3)
+node/                    # Node.js SDK (NAPI-RS)
+config/default.toml      # Default configuration
+tests/                   # Test suites
+docs/                    # Documentation
 ```
 
 ## Coding Standards
@@ -162,7 +166,7 @@ cargo test --lib
 ### Writing Tests
 
 - **Unit tests**: Place in `#[cfg(test)] mod tests { ... }` at bottom of source file
-- **Integration tests**: Place in `tests/` directory, import via `gmv_agent::`
+- **Integration tests**: Place in `tests/` directory, import via `pylot::`
 - **Test naming**: `test_<what>_<scenario>` e.g., `test_rsvp_detect_change`
 - **Assertions**: Use descriptive messages: `assert!(x, "explanation")`
 
@@ -227,7 +231,7 @@ All new features must include tests. Aim for:
 ### Bug Reports
 
 Include:
-- GMV Agent version (`gmv-agent --version`)
+- OpenPylot version (`pylot --version`)
 - OS and architecture
 - Steps to reproduce
 - Expected vs. actual behavior
@@ -245,8 +249,8 @@ Include:
 ### Configuration Priority
 
 1. Environment variables (highest)
-2. Encrypted secrets vault (`~/.gmv-agent/secrets.enc`)
-3. TOML config (`config/default.toml` or `~/.gmv-agent/config.toml`)
+2. Encrypted secrets vault (`~/.pylot/secrets.enc`)
+3. TOML config (`config/default.toml` or `~/.pylot/config.toml`)
 4. Built-in defaults (lowest)
 
 ### Security
@@ -263,4 +267,4 @@ Include:
 
 ---
 
-Thank you for contributing to GMV Agent!
+Thank you for contributing to OpenPylot!

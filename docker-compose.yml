@@ -1,4 +1,4 @@
-# Docker Compose for GMV Agent
+# Docker Compose for OpenPylot
 #
 # Usage:
 #   docker compose up -d
@@ -10,16 +10,30 @@
 #   TELEGRAM_CHAT_ID=...
 
 services:
-  gmv-agent:
-    build: .
-    image: ghcr.io/gmv-ai/gmv-agent:latest
-    container_name: gmv-agent
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: pylot-qdrant
     restart: unless-stopped
+    ports:
+      - "6333:6333"   # REST API
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant-data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+
+  pylot:
+    build: .
+    image: ghcr.io/openpylot/pylot:latest
+    container_name: pylot
+    restart: unless-stopped
+    depends_on:
+      - qdrant
     ports:
       - "8443:8443"  # Webhook server
     volumes:
-      - gmv-data:/home/gmv/.gmv-agent/data
-      - gmv-logs:/home/gmv/.gmv-agent/logs
+      - pylot-data:/home/pylot/.pylot/data
+      - pylot-logs:/home/pylot/.pylot/logs
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
@@ -29,8 +43,10 @@ services:
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - QDRANT_URL=http://qdrant:6334
       - RUST_LOG=${RUST_LOG:-info}
 
 volumes:
-  gmv-data:
-  gmv-logs:
+  pylot-data:
+  pylot-logs:
+  qdrant-data:

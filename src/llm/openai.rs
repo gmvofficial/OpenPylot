@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::llm::{LlmProvider, LlmResponse, Message, Role, ToolCall};
+use crate::streaming::{StreamEvent, StreamSender};
 use crate::tools::ToolDefinition;
 
 // ── OpenAI API types ─────────────────────────────────────────────────
@@ -17,6 +18,8 @@ struct OpenAIRequest {
     tools: Vec<OpenAITool>,
     max_tokens: u32,
     temperature: f64,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    stream: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -174,6 +177,7 @@ impl LlmProvider for OpenAIProvider {
             tools: Self::convert_tools(tools),
             max_tokens: self.max_tokens,
             temperature: self.temperature,
+            stream: false,
         };
 
         let response = self
@@ -236,5 +240,142 @@ impl LlmProvider for OpenAIProvider {
 
     fn model(&self) -> &str {
         &self.model
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
+    }
+
+    async fn chat_stream(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDefinition],
+        stream_tx: StreamSender,
+    ) -> Result<LlmResponse> {
+        let request = OpenAIRequest {
+            model: self.model.clone(),
+            messages: Self::convert_messages(messages),
+            tools: Self::convert_tools(tools),
+            max_tokens: self.max_tokens,
+            temperature: self.temperature,
+            stream: true,
+        };
+
+        let response = self
+            .client
+            .post("https://api.openai.com/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to send streaming request to OpenAI")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("OpenAI streaming API error ({}): {}", status, body);
+        }
+
+        let mut full_text = String::new();
+        let mut tool_calls_map: std::collections::HashMap<usize, (String, String, String)> =
+            std::collections::HashMap::new(); // index -> (id, name, arguments)
+
+        use futures_util::StreamExt;
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.context("Stream chunk error")?;
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+            // Process complete SSE lines
+            while let Some(line_end) = buffer.find('\n') {
+                let line = buffer[..line_end].trim().to_string();
+                buffer = buffer[line_end + 1..].to_string();
+
+                if line.is_empty() || line == "data: [DONE]" {
+                    continue;
+                }
+
+                if let Some(data) = line.strip_prefix("data: ") {
+                    if let Ok(parsed) = serde_json::from_str::<Value>(data) {
+                        if let Some(choices) = parsed.get("choices").and_then(|c| c.as_array()) {
+                            for choice in choices {
+                                let delta = match choice.get("delta") {
+                                    Some(d) => d,
+                                    None => continue,
+                                };
+
+                                // Text content
+                                if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                                    full_text.push_str(content);
+                                    let _ = stream_tx.send(StreamEvent::TextDelta {
+                                        text: content.to_string(),
+                                    });
+                                }
+
+                                // Tool calls
+                                if let Some(tc_arr) = delta.get("tool_calls").and_then(|t| t.as_array()) {
+                                    for tc in tc_arr {
+                                        let idx = tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+                                        let entry = tool_calls_map.entry(idx).or_insert_with(|| {
+                                            (String::new(), String::new(), String::new())
+                                        });
+
+                                        if let Some(id) = tc.get("id").and_then(|i| i.as_str()) {
+                                            entry.0 = id.to_string();
+                                        }
+                                        if let Some(func) = tc.get("function") {
+                                            if let Some(name) = func.get("name").and_then(|n| n.as_str()) {
+                                                entry.1 = name.to_string();
+                                                let _ = stream_tx.send(StreamEvent::ToolUseStart {
+                                                    id: entry.0.clone(),
+                                                    name: name.to_string(),
+                                                });
+                                            }
+                                            if let Some(args) = func.get("arguments").and_then(|a| a.as_str()) {
+                                                entry.2.push_str(args);
+                                                let _ = stream_tx.send(StreamEvent::ToolInputDelta {
+                                                    id: entry.0.clone(),
+                                                    delta: args.to_string(),
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Usage info
+                        if let Some(usage) = parsed.get("usage") {
+                            let input = usage.get("prompt_tokens").and_then(|t| t.as_u64()).unwrap_or(0) as u32;
+                            let output = usage.get("completion_tokens").and_then(|t| t.as_u64()).unwrap_or(0) as u32;
+                            let _ = stream_tx.send(StreamEvent::Usage {
+                                input_tokens: input,
+                                output_tokens: output,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        let _ = stream_tx.send(StreamEvent::MessageStop);
+
+        // Build final response
+        if !tool_calls_map.is_empty() {
+            let mut calls: Vec<(usize, ToolCall)> = tool_calls_map
+                .into_iter()
+                .map(|(idx, (id, name, args))| {
+                    let arguments: Value = serde_json::from_str(&args)
+                        .unwrap_or(Value::Object(serde_json::Map::new()));
+                    (idx, ToolCall { id, name, arguments })
+                })
+                .collect();
+            calls.sort_by_key(|(idx, _)| *idx);
+            Ok(LlmResponse::ToolCalls(calls.into_iter().map(|(_, tc)| tc).collect()))
+        } else {
+            Ok(LlmResponse::Text(full_text))
+        }
     }
 }

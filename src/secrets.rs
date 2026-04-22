@@ -135,7 +135,7 @@ impl SecretsVault {
         } else {
             let now = chrono::Utc::now().to_rfc3339();
             SecretsData {
-                schema: "gmv-agent-secrets-v1".to_string(),
+                schema: "pylot-secrets-v1".to_string(),
                 created_at: now.clone(),
                 updated_at: now,
                 ..Default::default()
@@ -433,7 +433,7 @@ fn hostname_fallback() -> String {
     std::process::Command::new("hostname")
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|_| "gmv-agent-default-machine".to_string())
+        .unwrap_or_else(|_| "pylot-default-machine".to_string())
 }
 
 // ── Helpers for config integration ───────────────────────────────────
@@ -442,15 +442,15 @@ fn hostname_fallback() -> String {
 pub fn default_secrets_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".gmv-agent")
+        .join(".pylot")
         .join("secrets.enc")
 }
 
-/// Default path to the GMV agent home directory.
-pub fn gmv_home_dir() -> PathBuf {
+/// Default path to the Pylot agent home directory.
+pub fn pylot_home_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".gmv-agent")
+        .join(".pylot")
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -533,7 +533,7 @@ mod tests {
     #[test]
     fn test_encrypt_decrypt_roundtrip() {
         let data = SecretsData {
-            schema: "gmv-agent-secrets-v1".to_string(),
+            schema: "pylot-secrets-v1".to_string(),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
             llm: LlmSecrets {

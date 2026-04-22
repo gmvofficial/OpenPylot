@@ -1,4 +1,4 @@
-use gmv_agent::scheduler::normalize_cron;
+use pylot::scheduler::normalize_cron;
 
 /// Verify 5-field cron expressions are normalized to 7-field.
 #[test]
@@ -24,7 +24,7 @@ fn test_normalize_cron_7_field() {
 /// Verify SchedulerState can be serialized/deserialized.
 #[test]
 fn test_scheduler_state_serde() {
-    use gmv_agent::scheduler::{JobState, SchedulerState};
+    use pylot::scheduler::{JobState, SchedulerState};
 
     let state = SchedulerState {
         jobs: vec![

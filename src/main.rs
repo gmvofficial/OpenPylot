@@ -2,17 +2,32 @@ mod agent;
 mod api;
 mod config;
 mod context;
+mod document_chunker;
+mod hooks;
 mod init;
 mod jobs;
 mod llm;
 mod memory;
 mod oauth;
+mod permissions;
 mod scheduler;
 mod secrets;
+mod sessions;
+mod smart_memory;
 mod telegram_bot;
 mod terminal;
+mod skills;
 mod tools;
+mod traits;
+mod usage;
 mod webhooks;
+mod memory_v2;
+mod streaming;
+mod sub_agents;
+mod mcp;
+mod learning;
+mod social;
+mod marketing;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -27,6 +42,7 @@ use crate::llm::anthropic::AnthropicProvider;
 use crate::llm::openai::OpenAIProvider;
 use crate::llm::LlmProvider;
 use crate::scheduler::AgentScheduler;
+use crate::smart_memory::SmartMemory;
 use crate::terminal::Terminal;
 use crate::tools::calendar::{
     authorize_google, CalendarConfig, CreateCalendarEvent, CreateMeeting, ListCalendarEvents,
@@ -46,9 +62,9 @@ use crate::tools::ToolRegistry;
 
 #[derive(Parser)]
 #[command(
-    name = "gmv-agent",
-    about = "GMV Agent — A Rust-powered personal AI assistant",
-    version = "0.2.0"
+    name = "pylot",
+    about = "OpenPylot — A Rust-powered personal AI assistant",
+    version = "0.3.0"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -88,6 +104,8 @@ enum Commands {
     },
     /// List configured tools
     Tools,
+    /// List loaded skills
+    Skills,
     /// Start Telegram bot mode (responds to messages on Telegram)
     TelegramBot,
     /// Start the agent daemon with scheduler and background jobs
@@ -117,6 +135,36 @@ enum Commands {
         /// Show scheduler logs instead of agent logs
         #[arg(long)]
         scheduler: bool,
+    },
+    /// Manage memory system
+    Memory {
+        #[command(subcommand)]
+        action: MemoryAction,
+    },
+    /// Manage sub-agents
+    Agents {
+        #[command(subcommand)]
+        action: AgentsAction,
+    },
+    /// Manage MCP server connections
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+    /// Manage social media accounts and posts
+    Social {
+        #[command(subcommand)]
+        action: SocialAction,
+    },
+    /// Manage learning rules and insights
+    Learn {
+        #[command(subcommand)]
+        action: LearnAction,
+    },
+    /// Generate shell completions
+    Completion {
+        /// Shell to generate completions for
+        shell: String,
     },
 }
 
@@ -162,6 +210,75 @@ enum ConfigAction {
     },
 }
 
+#[derive(Subcommand)]
+enum MemoryAction {
+    /// Search memories
+    Search {
+        /// Search query
+        query: String,
+    },
+    /// Show memory statistics
+    Stats,
+    /// Consolidate and clean up memories
+    Consolidate,
+}
+
+#[derive(Subcommand)]
+enum AgentsAction {
+    /// List running sub-agents
+    List,
+    /// Show running sub-agent status
+    Status {
+        /// Agent ID
+        id: String,
+    },
+    /// List available agent presets (manifests in ~/.pylot/agents/, ./agents/, bundled)
+    Presets,
+    /// Show a preset manifest's full details
+    Show {
+        /// Preset name (as defined by `name = "..."` in the .toml)
+        name: String,
+    },
+    /// Print the user-level agent manifests directory (create new .toml files here)
+    Path,
+    /// Spawn a sub-agent from a preset with the given task
+    Spawn {
+        /// Preset name
+        #[arg(short, long)]
+        preset: String,
+        /// Task description to send to the spawned agent
+        task: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum McpAction {
+    /// List configured MCP servers
+    List,
+    /// List all MCP tools
+    Tools,
+}
+
+#[derive(Subcommand)]
+enum SocialAction {
+    /// List connected social media accounts
+    Accounts,
+    /// List scheduled posts
+    Posts,
+    /// List campaigns
+    Campaigns,
+}
+
+#[derive(Subcommand)]
+enum LearnAction {
+    /// List learned rules
+    Rules,
+    /// Show learning statistics
+    Stats,
+    /// Prune low-confidence rules
+    Prune,
+}
+
 // ── Main ─────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -177,7 +294,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive(format!("gmv_agent={}", log_level).parse().unwrap()),
+                .add_directive(format!("pylot={}", log_level).parse().unwrap()),
         )
         .with_target(false)
         .init();
@@ -210,6 +327,11 @@ async fn main() -> Result<()> {
             list_tools(&config);
             Ok(())
         }
+        // List skills
+        Some(Commands::Skills) => {
+            list_skills();
+            Ok(())
+        }
         // Telegram bot mode
         Some(Commands::TelegramBot) => run_telegram_bot(&config).await,
         // Serve daemon with scheduler
@@ -228,6 +350,18 @@ async fn main() -> Result<()> {
         Some(Commands::Config { action }) => run_config_command(action),
         // Logs
         Some(Commands::Logs { scheduler }) => run_logs(scheduler),
+        // Memory management
+        Some(Commands::Memory { action }) => run_memory_command(action, &config).await,
+        // Sub-agents
+        Some(Commands::Agents { action }) => run_agents_command(action, &config).await,
+        // MCP servers
+        Some(Commands::Mcp { action }) => run_mcp_command(action),
+        // Social media
+        Some(Commands::Social { action }) => run_social_command(action),
+        // Learning
+        Some(Commands::Learn { action }) => run_learn_command(action, &config),
+        // Shell completions
+        Some(Commands::Completion { shell }) => run_completion(&shell),
         // Default: interactive REPL
         None => run_interactive(&config).await,
     }
@@ -291,16 +425,16 @@ async fn run_setup(config: &AppConfig, service: Option<&str>) -> Result<()> {
             Ok(())
         }
         None => {
-            println!("{}", "GMV Agent Setup Wizard".bright_blue().bold());
+            println!("{}", "Pylot Setup Wizard".bright_blue().bold());
             println!("{}", "═".repeat(40));
             println!("\nAvailable setup commands:\n");
             println!(
                 "  {} — Authorize Google Calendar OAuth2",
-                "gmv-agent setup google-calendar".bright_green()
+                "pylot setup google-calendar".bright_green()
             );
             println!(
                 "  {} — Authorize Gmail OAuth2",
-                "gmv-agent setup gmail".bright_green()
+                "pylot setup gmail".bright_green()
             );
             println!("\nFor general configuration, edit your .env file.");
             println!("See .env.example for available options.\n");
@@ -312,16 +446,20 @@ async fn run_setup(config: &AppConfig, service: Option<&str>) -> Result<()> {
 // ── One-shot chat ────────────────────────────────────────────────────
 
 async fn run_oneshot(config: &AppConfig, message: &str) -> Result<()> {
-    let (llm, tools) = build_components(config)?;
+    let smart_memory = init_smart_memory(config).await;
+    let (llm, tools, skill_registry) = build_components(config, smart_memory.as_ref())?;
     let system_prompt = build_system_prompt(config);
 
+    let memory_provider = smart_memory.map(|sm| sm as Arc<dyn crate::traits::MemoryProvider>);
     let mut agent = Agent::new(
         llm,
         tools,
+        skill_registry,
         system_prompt,
         config.max_context_messages,
         config.max_tool_iterations,
         config.data_dir.clone(),
+        memory_provider,
     )?;
 
     let response = agent.chat(message).await?;
@@ -349,7 +487,7 @@ async fn run_telegram_bot(config: &AppConfig) -> Result<()> {
     );
     println!(
         "{}",
-        "║    🤖 GMV Agent - Telegram Bot Mode             ║".bright_cyan()
+        "║    🤖 OpenPylot - Telegram Bot Mode              ║".bright_cyan()
     );
     println!(
         "{}",
@@ -358,18 +496,22 @@ async fn run_telegram_bot(config: &AppConfig) -> Result<()> {
     println!();
 
     // Enable agent-level logging to see tool calls and iterations
-    std::env::set_var("RUST_LOG", "gmv_agent=info");
+    std::env::set_var("RUST_LOG", "pylot=info");
 
-    let (llm, tools) = build_components(config)?;
+    let smart_memory = init_smart_memory(config).await;
+    let (llm, tools, skill_registry) = build_components(config, smart_memory.as_ref())?;
     let system_prompt = build_system_prompt(config);
 
+    let memory_provider = smart_memory.map(|sm| sm as Arc<dyn crate::traits::MemoryProvider>);
     let mut agent = Agent::new(
         llm,
         tools,
+        skill_registry,
         system_prompt,
         config.max_context_messages,
         config.max_tool_iterations,
         config.data_dir.clone(),
+        memory_provider,
     )?;
 
     // Show tool calls for debugging
@@ -405,16 +547,20 @@ async fn run_telegram_bot(config: &AppConfig) -> Result<()> {
 async fn run_telegram_bot_background(config: &AppConfig, bot_token: &str) -> Result<()> {
     use crate::telegram_bot::TelegramBot;
 
-    let (llm, tools) = build_components(config)?;
+    let smart_memory = init_smart_memory(config).await;
+    let (llm, tools, skill_registry) = build_components(config, smart_memory.as_ref())?;
     let system_prompt = build_system_prompt(config);
 
+    let memory_provider = smart_memory.map(|sm| sm as Arc<dyn crate::traits::MemoryProvider>);
     let mut agent = Agent::new(
         llm,
         tools,
+        skill_registry,
         system_prompt,
         config.max_context_messages,
         config.max_tool_iterations,
         config.data_dir.clone(),
+        memory_provider,
     )?;
     agent.set_quiet_mode(true);
 
@@ -427,26 +573,30 @@ async fn run_telegram_bot_background(config: &AppConfig, bot_token: &str) -> Res
 // ── Interactive REPL ─────────────────────────────────────────────────
 
 async fn run_interactive(config: &AppConfig) -> Result<()> {
-    let (llm, tools) = build_components(config)?;
+    let smart_memory = init_smart_memory(config).await;
+    let (llm, tools, skill_registry) = build_components(config, smart_memory.as_ref())?;
     let system_prompt = build_system_prompt(config);
 
+    let memory_provider = smart_memory.map(|sm| sm as Arc<dyn crate::traits::MemoryProvider>);
     let agent = Agent::new(
         llm,
         tools,
+        skill_registry,
         system_prompt,
         config.max_context_messages,
         config.max_tool_iterations,
         config.data_dir.clone(),
+        memory_provider,
     )?;
 
-    let mut terminal = Terminal::new(agent);
+    let mut terminal = Terminal::new(agent, config);
     terminal.run(config).await
 }
 
 // ── List tools ───────────────────────────────────────────────────────
 
 fn list_tools(config: &AppConfig) {
-    let tools = build_tool_registry(config);
+    let tools = build_tool_registry(config, None);
     let names = tools.names();
     if names.is_empty() {
         println!("{}", "No tools configured.".bright_yellow());
@@ -458,15 +608,57 @@ fn list_tools(config: &AppConfig) {
     }
 }
 
+fn list_skills() {
+    let registry = skills::SkillRegistry::load_all(None);
+    let all = registry.all_skills();
+    if all.is_empty() {
+        println!("{}", "No skills loaded.".bright_yellow());
+        println!("  Place SKILL.md files in ./skills/ or ~/.pylot/skills/");
+    } else {
+        println!("{}", format!("Loaded {} skill(s):", all.len()).bright_blue().bold());
+        for skill in &all {
+            let category = skill.meta.category.as_deref().unwrap_or("general");
+            let source = match skill.source {
+                skills::SkillSource::Bundled => "bundled",
+                skills::SkillSource::Local => "local",
+                skills::SkillSource::Workspace => "workspace",
+            };
+            println!(
+                "  • {} {} [{}]",
+                skill.meta.name.bright_cyan(),
+                format!("({})", category).dimmed(),
+                source.bright_green()
+            );
+            println!("    {}", skill.meta.description.dimmed());
+        }
+    }
+}
+
 // ── Build LLM provider and tool registry ─────────────────────────────
 
-fn build_tool_registry(config: &AppConfig) -> ToolRegistry {
+fn build_tool_registry(config: &AppConfig, smart_memory: Option<&Arc<SmartMemory>>) -> ToolRegistry {
     let mut tools = ToolRegistry::new();
     let data_dir = config.data_dir.clone();
 
     // -- Document Loader (always available) --
     tools.register(Box::new(DocumentLoaderTool::new()));
     tracing::info!("Document loader tool registered");
+
+    // -- Web Search & Extract (always available, no API key needed) --
+    tools.register(Box::new(crate::tools::web::WebSearchTool::new()));
+    tools.register(Box::new(crate::tools::web::WebExtractTool::new()));
+    tracing::info!("Web search and extract tools registered");
+
+    // -- Coding Tools (always available) --
+    let workspace_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    tools.register(Box::new(crate::tools::bash::BashTool::new(workspace_root.clone())));
+    tools.register(Box::new(crate::tools::file_ops::ReadFileTool::new(workspace_root.clone())));
+    tools.register(Box::new(crate::tools::file_ops::WriteFileTool::new(workspace_root.clone())));
+    tools.register(Box::new(crate::tools::file_ops::EditFileTool::new(workspace_root.clone())));
+    tools.register(Box::new(crate::tools::search::GlobSearchTool::new(workspace_root.clone())));
+    tools.register(Box::new(crate::tools::search::GrepSearchTool::new(workspace_root.clone())));
+    tools.register(Box::new(crate::tools::search::ListDirectoryTool::new(workspace_root)));
+    tracing::info!("Coding tools registered (bash, file_ops, search)");
 
     // -- Notes (always available) --
     tools.register(Box::new(CreateNote::new(data_dir.clone())));
@@ -546,21 +738,31 @@ fn build_tool_registry(config: &AppConfig) -> ToolRegistry {
         }
     }
 
+    // -- Memory tools (if smart memory is enabled) --
+    if let Some(sm) = smart_memory {
+        use crate::tools::memory_tools::*;
+        tools.register(Box::new(RememberFact::new(Arc::clone(sm), "default".to_string())));
+        tools.register(Box::new(RecallMemories::new(Arc::clone(sm), "default".to_string())));
+        tools.register(Box::new(SearchKnowledgeTool::new(Arc::clone(sm))));
+        tools.register(Box::new(ForgetFact::new(Arc::clone(sm))));
+        tracing::info!("Memory tools loaded (smart memory)");
+    }
+
     tools
 }
 
-fn build_components(config: &AppConfig) -> Result<(Box<dyn LlmProvider>, ToolRegistry)> {
+fn build_components(config: &AppConfig, smart_memory: Option<&Arc<SmartMemory>>) -> Result<(Arc<dyn LlmProvider>, ToolRegistry, skills::SkillRegistry)> {
     // Build LLM provider
-    let llm: Box<dyn LlmProvider> = match config.llm_provider.as_str() {
+    let llm: Arc<dyn LlmProvider> = match config.llm_provider.as_str() {
         "anthropic" => {
             let api_key = config
                 .anthropic_api_key
                 .as_ref()
                 .context(
-                    "ANTHROPIC_API_KEY not set. Run 'gmv-agent init' or add it to your .env file.",
+                    "ANTHROPIC_API_KEY not set. Run 'pylot init' or add it to your .env file.",
                 )?
                 .clone();
-            Box::new(AnthropicProvider::new(
+            Arc::new(AnthropicProvider::new(
                 api_key,
                 config.llm_model.clone(),
                 config.llm_max_tokens,
@@ -571,10 +773,10 @@ fn build_components(config: &AppConfig) -> Result<(Box<dyn LlmProvider>, ToolReg
                 .openai_api_key
                 .as_ref()
                 .context(
-                    "OPENAI_API_KEY not set. Run 'gmv-agent init' or add it to your .env file.",
+                    "OPENAI_API_KEY not set. Run 'pylot init' or add it to your .env file.",
                 )?
                 .clone();
-            Box::new(OpenAIProvider::new(
+            Arc::new(OpenAIProvider::new(
                 api_key,
                 config.llm_model.clone(),
                 config.llm_max_tokens,
@@ -583,9 +785,32 @@ fn build_components(config: &AppConfig) -> Result<(Box<dyn LlmProvider>, ToolReg
         }
     };
 
-    let tools = build_tool_registry(config);
+    let tools = build_tool_registry(config, smart_memory);
 
-    Ok((llm, tools))
+    // Load skills from bundled, local, and workspace directories
+    let skill_registry = skills::SkillRegistry::load_all(None);
+    tracing::info!("Loaded {} skills total", skill_registry.len());
+
+    Ok((llm, tools, skill_registry))
+}
+
+/// Initialize SmartMemory if enabled in config. Returns None on failure (graceful degradation).
+async fn init_smart_memory(config: &AppConfig) -> Option<Arc<SmartMemory>> {
+    if !config.memory_enabled {
+        return None;
+    }
+    match SmartMemory::new(config).await {
+        Ok(sm) => {
+            tracing::info!("Smart memory initialized (SQLite: {})", config.memory_db_name);
+            Some(Arc::new(sm))
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Smart memory unavailable (falling back to legacy): {e}"
+            );
+            None
+        }
+    }
 }
 
 // ── Serve command (daemon with scheduler) ────────────────────────────
@@ -597,7 +822,7 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
     );
     println!(
         "{}",
-        "║    🤖 GMV Agent — Serve Mode (Scheduler)        ║".bright_cyan()
+        "║    🤖 OpenPylot — Serve Mode (Scheduler)        ║".bright_cyan()
     );
     println!(
         "{}",
@@ -610,27 +835,11 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
     let mut sched = AgentScheduler::new(&data_dir);
 
     // Register default jobs based on config
-    let data_dir_clone = data_dir.clone();
-    sched.add_job(
-        "reminder_check",
-        "Check for due reminders and send notifications",
-        "* * * * *",
-        true,
-        move || {
-            let dd = data_dir_clone.clone();
-            Box::pin(async move {
-                let notifications = jobs::reminders::check_due_reminders(&dd)?;
-                if notifications.is_empty() {
-                    Ok("No due reminders".to_string())
-                } else {
-                    for msg in &notifications {
-                        println!("{}", msg);
-                    }
-                    Ok(format!("{} reminders notified", notifications.len()))
-                }
-            })
-        },
-    )?;
+    // Broadcast channel for real-time notifications to WebSocket clients
+    let (notification_tx, _) = tokio::sync::broadcast::channel::<String>(64);
+
+    // Note: reminder_check job is registered later, after the agent is created,
+    // so it can trigger the agent to process reminder tasks.
 
     // Calendar RSVP monitor (only if Google Calendar is configured)
     if config.google_calendar_enabled {
@@ -732,30 +941,316 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
     let api_port: u16 = 3001;
 
     // Build agent for the API server
-    let (llm, tools) = build_components(config)?;
+    let smart_memory = init_smart_memory(config).await;
+    let (llm, tools, skill_registry) = build_components(config, smart_memory.as_ref())?;
+    let llm_for_api = Arc::clone(&llm);
     let system_prompt = build_system_prompt(config);
+    let memory_provider = smart_memory.clone().map(|sm| sm as Arc<dyn crate::traits::MemoryProvider>);
     let mut agent = Agent::new(
         llm,
         tools,
+        skill_registry,
         system_prompt,
         config.max_context_messages,
         config.max_tool_iterations,
         config.data_dir.clone(),
+        memory_provider,
     )?;
     agent.set_quiet_mode(true);
 
+    // ── Initialize subsystems ────────────────────────────────────────
+
+    // Memory v2
+    let memory_v2_store = if config.memory_enabled {
+        match crate::memory_v2::MemoryStore::open(&config.data_dir.join("memory_v2.db")) {
+            Ok(store) => {
+                let store = Arc::new(store);
+                let embeddings = config.openai_api_key.as_ref().map(|key| {
+                    Arc::new(crate::memory_v2::EmbeddingClient::new(
+                        key.clone(),
+                        config.memory_embedding_model.clone(),
+                    ))
+                });
+                let retriever = Arc::new(crate::memory_v2::MemoryRetriever::new(
+                    store.clone(),
+                    embeddings,
+                    crate::memory_v2::RetrievalMode::Auto,
+                ));
+                agent.set_memory_v2(store.clone(), retriever);
+                tracing::info!("Memory v2 initialized");
+                Some(store)
+            }
+            Err(e) => {
+                tracing::warn!("Memory v2 unavailable: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // MCP registry
+    let mcp_registry = if config.mcp_enabled {
+        let registry = Arc::new(tokio::sync::Mutex::new(crate::mcp::McpRegistry::new()));
+        agent.set_mcp_registry(registry.clone());
+        tracing::info!("MCP registry initialized");
+        Some(registry)
+    } else {
+        None
+    };
+
+    // Conversation store (used by orchestrator + API)
+    let conversations = Arc::new(api::ConversationStore::new(&config.data_dir));
+
+    // Sub-agent store (SQLite persistence)
+    let sub_agent_store = match crate::sub_agents::SubAgentStore::open(&config.data_dir) {
+        Ok(s) => {
+            tracing::info!("Sub-agent SQLite store opened");
+            Some(Arc::new(s))
+        }
+        Err(e) => {
+            tracing::warn!("Failed to open sub-agent store: {e}");
+            None
+        }
+    };
+
+    // Sub-agent orchestrator
+    let spawn_conv_id: Arc<std::sync::Mutex<Option<String>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let orchestrator = {
+        let mut orch = crate::sub_agents::AgentOrchestrator::new(4);
+        if let Some(ref store) = sub_agent_store {
+            orch.set_store(Arc::clone(store));
+        }
+        orch.set_conversations(Arc::clone(&conversations));
+        let orch = Arc::new(orch);
+        agent.set_orchestrator(orch.clone());
+        // Register the spawn_sub_agent tool so the LLM can create sub-agents
+        let mut spawn_tool = crate::tools::spawn_agent::SpawnSubAgentTool::new(
+            orch.clone(),
+            llm_for_api.clone(),
+            config.data_dir.clone(),
+        );
+        spawn_tool.current_conversation_id = spawn_conv_id.clone();
+        agent.register_tool(Box::new(spawn_tool));
+        tracing::info!("Sub-agent orchestrator initialized (max 4 concurrent)");
+        Some(orch)
+    };
+
+    // Social media manager
+    let social_manager = {
+        let mut manager = match crate::social::SocialManager::with_db(&config.data_dir.join("social.db")) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!("Social DB init failed, using in-memory: {e}");
+                crate::social::SocialManager::new()
+            }
+        };
+        let mut count = 0usize;
+
+        if config.social_twitter_enabled {
+            if let (Some(ref key), Some(ref secret), Some(ref at), Some(ref ats)) = (
+                &config.twitter_api_key, &config.twitter_api_secret,
+                &config.twitter_access_token, &config.twitter_access_token_secret,
+            ) {
+                let mut extra = std::collections::HashMap::new();
+                extra.insert("access_token_secret".to_string(), ats.clone());
+                manager.add_provider(Box::new(crate::social::TwitterProvider::new(
+                    crate::social::PlatformConfig {
+                        platform: crate::social::Platform::Twitter,
+                        api_key: Some(key.clone()),
+                        api_secret: Some(secret.clone()),
+                        access_token: Some(at.clone()),
+                        refresh_token: None,
+                        extra,
+                    },
+                )));
+                count += 1;
+            }
+        }
+        if config.social_bluesky_enabled {
+            if let (Some(ref handle), Some(ref password)) = (&config.bluesky_handle, &config.bluesky_app_password) {
+                let mut extra = std::collections::HashMap::new();
+                extra.insert("handle".to_string(), handle.clone());
+                extra.insert("app_password".to_string(), password.clone());
+                manager.add_provider(Box::new(crate::social::BlueskyProvider::new(
+                    crate::social::PlatformConfig {
+                        platform: crate::social::Platform::Bluesky,
+                        api_key: None,
+                        api_secret: None,
+                        access_token: None,
+                        refresh_token: None,
+                        extra,
+                    },
+                )));
+                count += 1;
+            }
+        }
+        if config.social_linkedin_enabled {
+            if let (Some(ref token), Some(ref pid)) = (&config.linkedin_access_token, &config.linkedin_person_id) {
+                let mut extra = std::collections::HashMap::new();
+                extra.insert("person_id".to_string(), pid.clone());
+                manager.add_provider(Box::new(crate::social::LinkedInProvider::new(
+                    crate::social::PlatformConfig {
+                        platform: crate::social::Platform::LinkedIn,
+                        api_key: None,
+                        api_secret: None,
+                        access_token: Some(token.clone()),
+                        refresh_token: None,
+                        extra,
+                    },
+                )));
+                count += 1;
+            }
+        }
+
+        let sm = Arc::new(tokio::sync::Mutex::new(manager));
+        agent.set_social_manager(sm.clone());
+        if count > 0 {
+            tracing::info!("Social media manager initialized ({count} providers)");
+        }
+        Some(sm)
+    };
+
+    // Learning / prompt evolution
+    let prompt_evolution = if config.learning_enabled {
+        let db_path = config.data_dir.join("learning.db");
+        match crate::learning::PromptEvolution::new(db_path.to_str().unwrap_or("learning.db")) {
+            Ok(pe) => {
+                let pe = Arc::new(tokio::sync::Mutex::new(pe));
+                agent.set_prompt_evolution(pe.clone());
+                tracing::info!("Prompt evolution initialized");
+                Some(pe)
+            }
+            Err(e) => {
+                tracing::warn!("Prompt evolution unavailable: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Determine frontend build directory
     let frontend_dir = resolve_frontend_dir();
+
+    // Wrap agent early so it can be shared with the reminder job
+    let agent = Arc::new(Mutex::new(agent));
+
+    // Register reminder_check job — needs agent + conversations to deliver reminders in chat
+    {
+        let dd = data_dir.clone();
+        let tx = notification_tx.clone();
+        let agent_for_job = agent.clone();
+        let convos_for_job = conversations.clone();
+        sched.add_job(
+            "reminder_check",
+            "Check for due reminders and send notifications",
+            "* * * * *",
+            true,
+            move || {
+                let dd = dd.clone();
+                let tx = tx.clone();
+                let agent = agent_for_job.clone();
+                let convos = convos_for_job.clone();
+                Box::pin(async move {
+                    let due = jobs::reminders::check_due_reminders(&dd)?;
+                    if due.is_empty() {
+                        return Ok("No due reminders".to_string());
+                    }
+
+                    let count = due.len();
+                    for reminder in &due {
+                        // Send UI notification
+                        let notif_msg = if reminder.description.is_empty() {
+                            format!("🔔 Reminder: {}", reminder.title)
+                        } else {
+                            format!("🔔 Reminder: {}\n   {}", reminder.title, reminder.description)
+                        };
+                        tracing::info!("{}", notif_msg);
+                        let payload = serde_json::json!({
+                            "type": "reminder_due",
+                            "title": notif_msg,
+                            "message": notif_msg,
+                        });
+                        let _ = tx.send(payload.to_string());
+
+                        // Build prompt for the agent based on the reminder
+                        let prompt = if reminder.description.is_empty() {
+                            format!(
+                                "A reminder just fired: \"{}\". Please provide a helpful response about this topic.",
+                                reminder.title
+                            )
+                        } else {
+                            format!(
+                                "A reminder just fired: \"{}\". Details: {}. Please carry out this task now.",
+                                reminder.title, reminder.description
+                            )
+                        };
+
+                        // Have the agent process the reminder and store in a conversation
+                        let conv_id = format!("reminder-{}", uuid::Uuid::new_v4());
+                        convos.add_message(
+                            &conv_id,
+                            api::StoredMessage {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                role: "user".into(),
+                                content: prompt.clone(),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            },
+                        );
+
+                        match agent.lock().await.chat(&prompt).await {
+                            Ok(response) => {
+                                convos.add_message(
+                                    &conv_id,
+                                    api::StoredMessage {
+                                        id: uuid::Uuid::new_v4().to_string(),
+                                        role: "assistant".into(),
+                                        content: response.clone(),
+                                        timestamp: chrono::Utc::now().to_rfc3339(),
+                                    },
+                                );
+                                // Also send the response as a notification so it appears in UI
+                                let response_payload = serde_json::json!({
+                                    "type": "reminder_due",
+                                    "title": format!("📋 {}", reminder.title),
+                                    "message": response,
+                                    "conversationId": conv_id,
+                                });
+                                let _ = tx.send(response_payload.to_string());
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to process reminder '{}': {e}", reminder.title);
+                            }
+                        }
+                    }
+
+                    Ok(format!("{} reminders processed", count))
+                })
+            },
+        )?;
+    }
 
     let sched = Arc::new(Mutex::new(sched));
     let sched_clone = sched.clone();
 
     let api_state = api::ApiState {
-        agent: Arc::new(Mutex::new(agent)),
+        agent,
         config: Arc::new(config.clone()),
+        llm: llm_for_api,
         scheduler: sched_clone,
         start_time: std::time::Instant::now(),
-        conversations: Arc::new(api::ConversationStore::new(&config.data_dir)),
+        conversations,
+        smart_memory: smart_memory.clone(),
+        mcp_registry,
+        orchestrator,
+        social_manager,
+        prompt_evolution,
+        memory_v2_store,
+        sub_agent_store,
+        spawn_conversation_id: spawn_conv_id,
+        notification_tx,
     };
 
     if let Some(ref dir) = frontend_dir {
@@ -821,8 +1316,9 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
 // ── Resolve frontend build directory ─────────────────────────────────
 
 fn resolve_frontend_dir() -> Option<std::path::PathBuf> {
-    // 1. Check GMV_FRONTEND_DIR env var
-    if let Ok(dir) = std::env::var("GMV_FRONTEND_DIR") {
+    // 1. Check PYLOT_FRONTEND_DIR env var (with GMV_FRONTEND_DIR fallback)
+    if let Ok(dir) = std::env::var("PYLOT_FRONTEND_DIR")
+        .or_else(|_| std::env::var("GMV_FRONTEND_DIR")) {
         let p = std::path::PathBuf::from(dir);
         if p.exists() {
             return Some(p);
@@ -850,8 +1346,8 @@ fn resolve_frontend_dir() -> Option<std::path::PathBuf> {
         }
     }
 
-    // 4. Check in GMV home directory
-    let home = crate::secrets::gmv_home_dir();
+    // 4. Check in Pylot home directory
+    let home = crate::secrets::pylot_home_dir();
     let p = home.join("frontend/out");
     if p.exists() {
         return Some(p);
@@ -1072,7 +1568,7 @@ fn run_config_command(action: ConfigAction) -> Result<()> {
             );
             println!(
                 "  Run: {} to update settings",
-                "gmv-agent init".bright_green()
+                "pylot init".bright_green()
             );
             println!("  Key: {}, Value: {}", key.dimmed(), value.dimmed());
             Ok(())
@@ -1083,7 +1579,7 @@ fn run_config_command(action: ConfigAction) -> Result<()> {
 // ── Logs command ─────────────────────────────────────────────────────
 
 fn run_logs(scheduler: bool) -> Result<()> {
-    let home = secrets::gmv_home_dir();
+    let home = secrets::pylot_home_dir();
     let log_file = if scheduler {
         home.join("logs").join("scheduler.log")
     } else {
@@ -1098,7 +1594,7 @@ fn run_logs(scheduler: bool) -> Result<()> {
         );
         println!(
             "  Logs are created when running: {}",
-            "gmv-agent serve".bright_green()
+            "pylot serve".bright_green()
         );
         return Ok(());
     }
@@ -1127,6 +1623,290 @@ fn run_logs(scheduler: bool) -> Result<()> {
     Ok(())
 }
 
+// ── Memory command ───────────────────────────────────────────────────
+
+async fn run_memory_command(action: MemoryAction, config: &AppConfig) -> Result<()> {
+    let db_path = config.data_dir.join("smart_memory.db");
+    match action {
+        MemoryAction::Search { query } => {
+            println!("{} Searching memories for: {}", "🔍".bright_blue(), query.bright_white());
+            if let Some(ref sm) = init_smart_memory(config).await {
+                match sm.search_knowledge(&query, 10).await {
+                    Ok(results) => {
+                        for (i, r) in results.iter().enumerate() {
+                            println!("  {}. [score: {:.2}] {}", i + 1, r.score, r.content.chars().take(100).collect::<String>());
+                        }
+                        if results.is_empty() {
+                            println!("  No memories found.");
+                        }
+                    }
+                    Err(e) => println!("{} Search failed: {e}", "✗".bright_red()),
+                }
+            } else {
+                println!("{} Smart memory not configured", "✗".bright_red());
+            }
+        }
+        MemoryAction::Stats => {
+            println!("{} Memory Statistics", "📊".bright_blue());
+            println!("  Database: {}", db_path.display());
+            println!("  Exists: {}", db_path.exists());
+        }
+        MemoryAction::Consolidate => {
+            println!("{} Memory consolidation not yet wired to memory_v2", "⚠".bright_yellow());
+        }
+    }
+    Ok(())
+}
+
+// ── Agents command ───────────────────────────────────────────────────
+
+async fn run_agents_command(action: AgentsAction, config: &AppConfig) -> Result<()> {
+    use crate::sub_agents::{AgentManifestRegistry, ManifestSource};
+    let workspace = std::env::current_dir().ok();
+    let registry = AgentManifestRegistry::load_all(workspace.as_deref());
+
+    match action {
+        AgentsAction::List => {
+            println!("{} Sub-Agent System", "🤖".bright_blue());
+            println!("  No active sub-agents. Use the agent to spawn sub-agents during chat,");
+            println!(
+                "  or run: {} to spawn one from a preset.",
+                "pylot agents spawn --preset <name> <task>".bright_green()
+            );
+        }
+        AgentsAction::Status { id } => {
+            println!("{} Agent {} not found", "✗".bright_red(), id);
+        }
+        AgentsAction::Presets => {
+            let all = registry.all();
+            if all.is_empty() {
+                println!("{} No agent presets found.", "ℹ".bright_blue());
+                if let Some(dir) = AgentManifestRegistry::user_agents_dir() {
+                    println!("  Drop .toml files into: {}", dir.display().to_string().bright_cyan());
+                }
+                println!("  Or bundled presets at: {}", "./agents/".bright_cyan());
+            } else {
+                println!(
+                    "{}",
+                    format!("Available agent presets ({}):", all.len())
+                        .bright_blue()
+                        .bold()
+                );
+                for m in all {
+                    let src = match m.source {
+                        ManifestSource::Bundled => "bundled",
+                        ManifestSource::Local => "local",
+                        ManifestSource::Workspace => "workspace",
+                    };
+                    println!(
+                        "  • {} {} [{}]",
+                        m.name.bright_cyan(),
+                        format!("({})", m.agent_type).dimmed(),
+                        src.bright_green()
+                    );
+                    if !m.description.is_empty() {
+                        println!("    {}", m.description.dimmed());
+                    }
+                }
+            }
+        }
+        AgentsAction::Show { name } => match registry.get(&name) {
+            Some(m) => {
+                println!("{} {}", "Preset:".bright_blue().bold(), m.name.bright_cyan());
+                println!("  type:         {}", m.agent_type);
+                if let Some(ref path) = m.source_path {
+                    println!("  source:       {} ({})", path.display(), m.source.as_str());
+                }
+                println!("  timeout:      {}s", m.timeout_secs);
+                println!("  max_iters:    {}", m.max_iterations);
+                if let Some(ref model) = m.model_override {
+                    println!("  model:        {}", model);
+                }
+                if let Some(ref tools) = m.allowed_tools {
+                    println!("  tools:        {}", tools.join(", "));
+                }
+                if !m.description.is_empty() {
+                    println!("  description:  {}", m.description);
+                }
+                println!();
+                println!("{}", "System prompt:".bright_blue());
+                for line in m.system_prompt.lines() {
+                    println!("  {}", line);
+                }
+            }
+            None => {
+                println!("{} Preset '{}' not found.", "✗".bright_red(), name);
+                println!(
+                    "  Run {} to see available presets.",
+                    "pylot agents presets".bright_green()
+                );
+            }
+        },
+        AgentsAction::Path => {
+            let dir = AgentManifestRegistry::user_agents_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("~/.pylot/agents"));
+            if !dir.exists() {
+                std::fs::create_dir_all(&dir).ok();
+            }
+            println!("{}", dir.display());
+        }
+        AgentsAction::Spawn { preset, task } => {
+            let manifest = match registry.get(&preset) {
+                Some(m) => m.clone(),
+                None => {
+                    println!("{} Preset '{}' not found.", "✗".bright_red(), preset);
+                    println!(
+                        "  Run {} to see available presets.",
+                        "pylot agents presets".bright_green()
+                    );
+                    return Ok(());
+                }
+            };
+
+            // Build a minimal LLM-only run: no tool registry sharing,
+            // just use the parent agent's components and the preset's scope.
+            let smart_memory = init_smart_memory(config).await;
+            let (llm, tools, skill_registry) = build_components(config, smart_memory.as_ref())?;
+            let memory_provider =
+                smart_memory.map(|sm| sm as Arc<dyn crate::traits::MemoryProvider>);
+
+            let sub_config = manifest.into_config();
+
+            println!(
+                "{} Spawning {} ({}): {}",
+                "→".bright_blue(),
+                sub_config.name.bright_cyan(),
+                match sub_config.agent_type {
+                    crate::sub_agents::SubAgentType::Task => "task",
+                    crate::sub_agents::SubAgentType::Background => "background",
+                    crate::sub_agents::SubAgentType::Specialist => "specialist",
+                },
+                task.dimmed()
+            );
+
+            // Run inline for CLI use (no orchestrator needed for one-shot).
+            let mut agent = Agent::new(
+                llm,
+                tools,
+                skill_registry,
+                sub_config.system_prompt.clone(),
+                config.max_context_messages,
+                sub_config.max_iterations,
+                config.data_dir.clone(),
+                memory_provider,
+            )?;
+            agent.set_quiet_mode(false);
+            let response = agent.chat(&task).await?;
+            println!();
+            println!("{}", response);
+        }
+    }
+    Ok(())
+}
+
+// ── MCP command ──────────────────────────────────────────────────────
+
+fn run_mcp_command(action: McpAction) -> Result<()> {
+    match action {
+        McpAction::List => {
+            println!("{} MCP Servers", "🔌".bright_blue());
+            println!("  No MCP servers configured.");
+            println!("  Add servers to your config file under [mcp.servers]");
+        }
+        McpAction::Tools => {
+            println!("{} MCP Tools", "🔧".bright_blue());
+            println!("  No MCP tools available. Connect a server first.");
+        }
+    }
+    Ok(())
+}
+
+// ── Social command ───────────────────────────────────────────────────
+
+fn run_social_command(action: SocialAction) -> Result<()> {
+    match action {
+        SocialAction::Accounts => {
+            println!("{} Social Media Accounts", "📱".bright_blue());
+            println!("  No accounts connected.");
+            println!("  Supported: Twitter, LinkedIn, Instagram, Facebook, Bluesky");
+        }
+        SocialAction::Posts => {
+            println!("{} Scheduled Posts", "📝".bright_blue());
+            println!("  No posts scheduled.");
+        }
+        SocialAction::Campaigns => {
+            println!("{} Campaigns", "📢".bright_blue());
+            println!("  No campaigns created.");
+        }
+    }
+    Ok(())
+}
+
+// ── Learn command ────────────────────────────────────────────────────
+
+fn run_learn_command(action: LearnAction, config: &AppConfig) -> Result<()> {
+    let db_path = config.data_dir.join("learning.db");
+    match action {
+        LearnAction::Rules => {
+            match learning::PromptEvolution::new(&db_path.to_string_lossy()) {
+                Ok(pe) => match pe.active_rules() {
+                    Ok(rules) => {
+                        println!("{} Learned Rules ({})", "🧠".bright_blue(), rules.len());
+                        for rule in &rules {
+                            println!(
+                                "  [{:.2}] {} (✓{} ✗{})",
+                                rule.confidence,
+                                rule.rule_text,
+                                rule.success_count,
+                                rule.failure_count
+                            );
+                        }
+                        if rules.is_empty() {
+                            println!("  No rules learned yet.");
+                        }
+                    }
+                    Err(e) => println!("{} Failed to load rules: {e}", "✗".bright_red()),
+                },
+                Err(e) => println!("{} Failed to open learning DB: {e}", "✗".bright_red()),
+            }
+        }
+        LearnAction::Stats => {
+            println!("{} Learning Statistics", "📊".bright_blue());
+            println!("  Database: {}", db_path.display());
+            println!("  Exists: {}", db_path.exists());
+        }
+        LearnAction::Prune => {
+            match learning::PromptEvolution::new(&db_path.to_string_lossy()) {
+                Ok(pe) => match pe.prune_dead_rules() {
+                    Ok(count) => println!("{} Pruned {} dead rules", "🧹".bright_blue(), count),
+                    Err(e) => println!("{} Prune failed: {e}", "✗".bright_red()),
+                },
+                Err(e) => println!("{} Failed to open learning DB: {e}", "✗".bright_red()),
+            }
+        }
+    }
+    Ok(())
+}
+
+// ── Shell completions ────────────────────────────────────────────────
+
+fn run_completion(shell: &str) -> Result<()> {
+    use clap::CommandFactory;
+    let mut cmd = Cli::command();
+    let shell = match shell.to_lowercase().as_str() {
+        "bash" => clap_complete::Shell::Bash,
+        "zsh" => clap_complete::Shell::Zsh,
+        "fish" => clap_complete::Shell::Fish,
+        "powershell" | "ps" => clap_complete::Shell::PowerShell,
+        _ => {
+            println!("{} Unknown shell: {}. Supported: bash, zsh, fish, powershell", "✗".bright_red(), shell);
+            return Ok(());
+        }
+    };
+    clap_complete::generate(shell, &mut cmd, "pylot", &mut std::io::stdout());
+    Ok(())
+}
+
 // ── System prompt builder ────────────────────────────────────────────
 
 fn build_system_prompt(config: &AppConfig) -> String {
@@ -1138,6 +1918,7 @@ fn build_system_prompt(config: &AppConfig) -> String {
 {persona}
 
 You have access to the following tool categories:
+- **Web Search & Extract**: Search the web for current information using `web_search`, and extract full content from web pages using `web_extract`. ALWAYS use these when the user asks about recent news, updates, current events, or anything that requires up-to-date information beyond your training data.
 - **Document Loader**: Load and extract text content from documents (PDF, DOCX, TXT, JSON, CSV, XML, HTML, Excel) from local file paths or URLs
 - **Notes**: Create, list, search, and delete personal notes
 - **Reminders**: Set, list, and complete reminders
@@ -1145,13 +1926,14 @@ You have access to the following tool categories:
 - **Gmail**: Search, read, send, and reply to emails; create and manage drafts
 - **Telegram**: Send messages and check updates via Telegram Bot
 - **WhatsApp**: Send messages via WhatsApp (Twilio)
+- **Sub-Agents**: Spawn autonomous sub-agents to handle tasks in the background. Use the `spawn_sub_agent` tool when the user asks you to spawn, create, or delegate a task to a sub-agent. You MUST call the tool — do NOT just describe the action in text.
 
 Guidelines:
 1. Use the available tools to help the user accomplish tasks.
-2. **When users ask you to analyze, read, or load documents**, use the `load_document` tool with the file path and document type (pdf, docx, txt, json, csv, xml, html, xlsx, xls, xlsb). You CAN access local files on the user's system.
-3. When creating calendar events, clarify the timezone if ambiguous. Use ISO 8601 format for datetimes.
-3. When creating calendar events, clarify the timezone if ambiguous. Use ISO 8601 format for datetimes.
-4. Before sending messages (Telegram/WhatsApp) or emails (Gmail), confirm the recipient and content with the user unless they're explicit.
+2. **When users ask about recent news, updates, current events, or anything you are not certain about**, ALWAYS use `web_search` first to find current information, then optionally use `web_extract` to get full article content from the most relevant URLs. Never say you cannot find information without searching first.
+3. **When users ask you to analyze, read, or load documents**, use the `load_document` tool with the file path and document type (pdf, docx, txt, json, csv, xml, html, xlsx, xls, xlsb). You CAN access local files on the user's system.
+4. When creating calendar events, clarify the timezone if ambiguous. Use ISO 8601 format for datetimes.
+5. Before sending messages (Telegram/WhatsApp) or emails (Gmail), confirm the recipient and content with the user unless they're explicit.
 5. For notes, use descriptive titles and appropriate tags for easy retrieval.
 6. Be concise in responses but thorough in tool usage.
 7. If a tool is not configured (e.g., missing API key), inform the user and suggest how to set it up.
@@ -1162,7 +1944,8 @@ Guidelines:
 12. For meetings, always try to include a Google Meet link by using the create_meeting tool.
 13. Always confirm with the user before sending emails or drafts via Gmail.
 14. The create_meeting tool automatically sends email invitations to all attendees — no additional notification step is needed.
-15. After a tool succeeds, report the result to the user. Do NOT keep calling tools unnecessarily."#,
+15. After a tool succeeds, report the result to the user. Do NOT keep calling tools unnecessarily.
+16. IMPORTANT: When you have a tool available for an action, you MUST call the tool. Never pretend you performed an action by describing it in text — always use the actual tool call."#,
         name = config.agent_name,
         persona = config.agent_persona,
         datetime = now.format("%Y-%m-%d %H:%M:%S %Z"),

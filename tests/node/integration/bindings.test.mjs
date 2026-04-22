@@ -42,8 +42,8 @@ describe('TypeScript declarations', () => {
     assert.ok(indexTs.includes('telegramChatId?: string'));
   });
 
-  it('should declare GMVAgent class', () => {
-    assert.ok(indexTs.includes('class GMVAgent'));
+  it('should declare PylotAgent class', () => {
+    assert.ok(indexTs.includes('class PylotAgent'));
   });
 
   it('should declare static init method', () => {
@@ -51,7 +51,7 @@ describe('TypeScript declarations', () => {
   });
 
   it('should declare static fromConfig method', () => {
-    assert.ok(indexTs.includes('static fromConfig(configPath: string): Promise<GMVAgent>'));
+    assert.ok(indexTs.includes('static fromConfig(configPath: string): Promise<PylotAgent>'));
   });
 
   it('should declare constructor with Config', () => {
@@ -84,8 +84,8 @@ describe('CLI script', () => {
     assert.ok(cliJs.includes('execFileSync'));
   });
 
-  it('should delegate to gmv-agent binary', () => {
-    assert.ok(cliJs.includes("'gmv-agent'"));
+  it('should delegate to openpylot binary', () => {
+    assert.ok(cliJs.includes("'openpylot'"));
   });
 
   it('should forward process arguments', () => {
@@ -93,7 +93,7 @@ describe('CLI script', () => {
   });
 
   it('should handle missing binary gracefully', () => {
-    assert.ok(cliJs.includes('gmv-agent binary not found'));
+    assert.ok(cliJs.includes('openpylot binary not found'));
   });
 });
 

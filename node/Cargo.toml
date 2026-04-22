@@ -1,10 +1,10 @@
 [package]
-name = "gmv-agent-node-bindings"
-version = "0.2.0"
+name = "pylot-node-bindings"
+version = "0.3.0"
 edition = "2021"
-description = "Node.js bindings for GMV Agent — A Rust-powered personal AI assistant"
+description = "Node.js bindings for OpenPylot — A Rust-powered personal AI assistant"
 license = "MIT"
-repository = "https://github.com/GMV-AI/gmv-agent"
+repository = "https://github.com/openpylot/pylot"
 publish = false
 
 [lib]
@@ -17,6 +17,9 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
+
+# Reference the main workspace crate
+pylot-core = { path = "..", package = "pylot" }
 
 [build-dependencies]
 napi-build = "2"

@@ -189,6 +189,83 @@ function AgentSettingsEditor() {
             Defines the agent&apos;s personality and behavior guidelines.
           </p>
         </div>
+
+        <Separator />
+
+        {/* Max Tokens */}
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <ChevronRight className="h-4 w-4 text-foreground-muted" />
+            Max Tokens
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min="256"
+              max="16384"
+              step="256"
+              value={settings.maxTokens ?? 4096}
+              onChange={(e) => update("maxTokens", parseInt(e.target.value))}
+              className="flex-1 accent-accent"
+            />
+            <span className="w-14 text-right text-sm font-mono text-foreground-secondary">
+              {(settings.maxTokens ?? 4096).toLocaleString()}
+            </span>
+          </div>
+          <p className="text-xs text-foreground-muted">
+            Maximum tokens per LLM response.
+          </p>
+        </div>
+
+        {/* Context Messages */}
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <ChevronRight className="h-4 w-4 text-foreground-muted" />
+            Context Messages
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min="2"
+              max="100"
+              step="2"
+              value={settings.max_context_messages ?? 20}
+              onChange={(e) => update("max_context_messages", parseInt(e.target.value))}
+              className="flex-1 accent-accent"
+            />
+            <span className="w-10 text-right text-sm font-mono text-foreground-secondary">
+              {settings.max_context_messages ?? 20}
+            </span>
+          </div>
+          <p className="text-xs text-foreground-muted">
+            How many recent messages to include as context.
+          </p>
+        </div>
+
+        {/* Max Tool Iterations */}
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <ChevronRight className="h-4 w-4 text-foreground-muted" />
+            Max Tool Iterations
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min="1"
+              max="20"
+              step="1"
+              value={settings.max_tool_iterations ?? 10}
+              onChange={(e) => update("max_tool_iterations", parseInt(e.target.value))}
+              className="flex-1 accent-accent"
+            />
+            <span className="w-10 text-right text-sm font-mono text-foreground-secondary">
+              {settings.max_tool_iterations ?? 10}
+            </span>
+          </div>
+          <p className="text-xs text-foreground-muted">
+            Maximum tool call rounds per response.
+          </p>
+        </div>
       </CardContent>
     </Card>
   );
@@ -289,7 +366,7 @@ function MemoryManager() {
                       }}
                     />
                     <Button size="icon" variant="ghost" onClick={handleSaveEdit}>
-                      <Check className="h-4 w-4 text-green-400" />
+                      <Check className="h-4 w-4 text-accent-success" />
                     </Button>
                     <Button size="icon" variant="ghost" onClick={() => setEditingId(null)}>
                       <X className="h-4 w-4" />
@@ -321,7 +398,7 @@ function MemoryManager() {
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-7 w-7 text-foreground-muted hover:text-red-400"
+                      className="h-7 w-7 text-foreground-muted hover:text-accent-error"
                       onClick={() => handleDelete(fact.id)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />

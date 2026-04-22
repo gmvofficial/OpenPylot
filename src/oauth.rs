@@ -43,6 +43,8 @@ pub struct OAuthConfig {
     pub redirect_port: u16,
     /// Additional query parameters for the auth URL
     pub extra_params: HashMap<String, String>,
+    /// Enable PKCE (Proof Key for Code Exchange) for public clients
+    pub use_pkce: bool,
 }
 
 /// Token response from the OAuth provider.
@@ -86,6 +88,7 @@ pub fn google_oauth_config(
         scopes,
         redirect_port,
         extra_params: extra,
+        use_pkce: false,
     }
 }
 
@@ -104,6 +107,7 @@ pub fn github_oauth_config(
         scopes,
         redirect_port: 8085,
         extra_params: HashMap::new(),
+        use_pkce: false,
     }
 }
 
@@ -122,12 +126,13 @@ pub fn slack_oauth_config(
         scopes,
         redirect_port: 8085,
         extra_params: HashMap::new(),
+        use_pkce: false,
     }
 }
 
 // ── Default Google scopes ───────────────────────────────────────────
 
-/// Standard Google scopes for the GMV Agent.
+/// Standard Google scopes for the OpenPylot.
 pub fn default_google_scopes() -> Vec<String> {
     vec![
         "https://www.googleapis.com/auth/calendar".into(),
@@ -173,6 +178,15 @@ pub async fn run_oauth_flow(config: &OAuthConfig) -> Result<TokenResponse> {
     // Generate a random state parameter for CSRF protection
     let state = generate_state();
 
+    // Generate PKCE challenge if enabled
+    let (code_verifier, code_challenge) = if config.use_pkce {
+        let verifier = generate_pkce_verifier();
+        let challenge = generate_pkce_challenge(&verifier);
+        (Some(verifier), Some(challenge))
+    } else {
+        (None, None)
+    };
+
     // Build the authorization URL
     let mut auth_url = format!(
         "{}?client_id={}&redirect_uri={}&response_type=code&scope={}&state={}",
@@ -182,6 +196,14 @@ pub async fn run_oauth_flow(config: &OAuthConfig) -> Result<TokenResponse> {
         urlencoding::encode(&config.scopes.join(" ")),
         urlencoding::encode(&state),
     );
+
+    // Add PKCE parameters
+    if let Some(ref challenge) = code_challenge {
+        auth_url.push_str(&format!(
+            "&code_challenge={}&code_challenge_method=S256",
+            urlencoding::encode(challenge)
+        ));
+    }
 
     for (k, v) in &config.extra_params {
         auth_url.push_str(&format!(
@@ -214,7 +236,7 @@ pub async fn run_oauth_flow(config: &OAuthConfig) -> Result<TokenResponse> {
     println!("  → Exchanging authorization code for tokens...");
 
     // Exchange code for tokens
-    let tokens = exchange_code(config, &code, &redirect_uri).await?;
+    let tokens = exchange_code(config, &code, &redirect_uri, code_verifier.as_deref()).await?;
 
     println!("  ✅ {} authorization complete!", config.provider);
 
@@ -326,6 +348,7 @@ pub async fn exchange_code(
     config: &OAuthConfig,
     code: &str,
     redirect_uri: &str,
+    code_verifier: Option<&str>,
 ) -> Result<TokenResponse> {
     let client = reqwest::Client::new();
 
@@ -335,6 +358,11 @@ pub async fn exchange_code(
     params.insert("redirect_uri", redirect_uri);
     params.insert("client_id", &config.client_id);
     params.insert("client_secret", &config.client_secret);
+
+    // Include PKCE code_verifier if present
+    if let Some(verifier) = code_verifier {
+        params.insert("code_verifier", verifier);
+    }
 
     let resp = client
         .post(&config.token_url)
@@ -407,6 +435,73 @@ pub fn generate_state() -> String {
     let mut rng = rand::thread_rng();
     let bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
     base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &bytes)
+}
+
+/// Generate a PKCE code verifier (43-128 character random string).
+pub fn generate_pkce_verifier() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
+    base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &bytes)
+}
+
+/// Generate a PKCE S256 code challenge from a verifier.
+pub fn generate_pkce_challenge(verifier: &str) -> String {
+    use sha2::{Sha256, Digest};
+    let hash = Sha256::digest(verifier.as_bytes());
+    base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &hash)
+}
+
+// ── Social Platform OAuth Presets ───────────────────────────────────
+
+/// Twitter/X OAuth 2.0 configuration (with PKCE).
+pub fn twitter_oauth_config(client_id: &str, client_secret: &str) -> OAuthConfig {
+    OAuthConfig {
+        provider: "Twitter".into(),
+        auth_url: "https://twitter.com/i/oauth2/authorize".into(),
+        token_url: "https://api.twitter.com/2/oauth2/token".into(),
+        client_id: client_id.into(),
+        client_secret: client_secret.into(),
+        scopes: vec![
+            "tweet.read".into(), "tweet.write".into(),
+            "users.read".into(), "offline.access".into(),
+        ],
+        redirect_port: 8085,
+        extra_params: HashMap::new(),
+        use_pkce: true,
+    }
+}
+
+/// LinkedIn OAuth 2.0 configuration.
+pub fn linkedin_oauth_config(client_id: &str, client_secret: &str) -> OAuthConfig {
+    OAuthConfig {
+        provider: "LinkedIn".into(),
+        auth_url: "https://www.linkedin.com/oauth/v2/authorization".into(),
+        token_url: "https://www.linkedin.com/oauth/v2/accessToken".into(),
+        client_id: client_id.into(),
+        client_secret: client_secret.into(),
+        scopes: vec!["w_member_social".into(), "r_liteprofile".into()],
+        redirect_port: 8085,
+        extra_params: HashMap::new(),
+        use_pkce: false,
+    }
+}
+
+/// Reddit OAuth 2.0 configuration.
+pub fn reddit_oauth_config(client_id: &str, client_secret: &str) -> OAuthConfig {
+    let mut extra = HashMap::new();
+    extra.insert("duration".into(), "permanent".into());
+    OAuthConfig {
+        provider: "Reddit".into(),
+        auth_url: "https://www.reddit.com/api/v1/authorize".into(),
+        token_url: "https://www.reddit.com/api/v1/access_token".into(),
+        client_id: client_id.into(),
+        client_secret: client_secret.into(),
+        scopes: vec!["submit".into(), "identity".into(), "read".into()],
+        redirect_port: 8085,
+        extra_params: extra,
+        use_pkce: false,
+    }
 }
 
 #[cfg(test)]

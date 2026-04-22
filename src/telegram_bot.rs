@@ -112,7 +112,7 @@ impl TelegramBot {
                 } else {
                     response.clone()
                 };
-                println!("GMV_Assistant :  {}\n", display_response);
+                println!("Pylot :  {}\n", display_response);
 
                 self.send_message(chat_id, &response).await?;
             }
@@ -131,7 +131,7 @@ impl TelegramBot {
         let response = match command.trim() {
             "/start" => {
                 format!(
-                    "👋 Welcome to GMV Agent!\n\n\
+                    "👋 Welcome to OpenPylot!\n\n\
                      I'm your personal AI assistant. You can:\n\
                      • Ask me to take notes\n\
                      • Set reminders\n\
@@ -145,7 +145,7 @@ impl TelegramBot {
                      /clear - Clear conversation history"
                 )
             }
-            "/help" => "📖 *GMV Agent Help*\n\n\
+            "/help" => "📖 *Pylot Help*\n\n\
                  Just chat with me naturally! Examples:\n\
                  • \"Take a note: Buy groceries\"\n\
                  • \"What's on my calendar today?\"\n\

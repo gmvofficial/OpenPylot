@@ -1,22 +1,22 @@
 [package]
-name = "gmv-agent"
-version = "0.2.0"
+name = "pylot"
+version = "0.3.0"
 edition = "2021"
-description = "GMV Agent - A Rust-powered personal AI assistant"
+description = "OpenPylot — A Rust-powered personal AI assistant"
 license = "MIT"
-repository = "https://github.com/GMV-AI/gmv-agent"
-keywords = ["ai", "assistant", "agent", "personal-assistant"]
+repository = "https://github.com/openpylot/pylot"
+keywords = ["ai", "assistant", "agent", "personal-assistant", "pylot"]
 categories = ["command-line-utilities"]
 
 [[bin]]
-name = "gmv-agent"
+name = "pylot"
 path = "src/main.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 async-trait = "0.1"
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
@@ -30,6 +30,7 @@ dirs = "6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 open = "5"
 urlencoding = "2"
 
@@ -40,6 +41,7 @@ console = "0.15"
 
 # Secrets vault encryption
 aes-gcm = "0.10"
+sha2 = "0.10"
 argon2 = "0.5"
 rand = "0.8"
 base64 = "0.22"
@@ -50,6 +52,23 @@ cron = "0.13"
 # Webhook server & API server
 axum = { version = "0.8", features = ["ws", "multipart"] }
 tower-http = { version = "0.6", features = ["cors", "fs"] }
+
+# Embedded smart memory (SQLite + OpenAI embeddings)
+rusqlite = { version = "0.33", features = ["bundled"] }
+
+# Skill system (SKILL.md YAML frontmatter parsing)
+serde_yaml = "0.9"
+which = "7"
+
+# Coding tools (file search, grep, glob)
+glob = "0.3"
+walkdir = "2"
+regex = "1"
+
+# Streaming support for SSE
+tokio-stream = "0.1"
+futures-core = "0.3"
+futures-util = "0.3"
 
 # Document processing
 pdf-extract = "0.7"
@@ -63,6 +82,7 @@ tempfile = "3.17"
 # OCR support for scanned PDFs and images (optional feature)
 tesseract = { version = "0.14", optional = true }
 image = { version = "0.25", optional = true }
+notify = { version = "8.2.0", features = ["macos_fsevent"] }
 
 [features]
 default = []
@@ -111,6 +131,10 @@ path = "tests/rust/unit/tools_test.rs"
 [[test]]
 name = "unit_llm"
 path = "tests/rust/unit/llm_test.rs"
+
+[[test]]
+name = "skills_test"
+path = "tests/rust/integration/skills_test.rs"
 
 [dev-dependencies]
 tempfile = "3"

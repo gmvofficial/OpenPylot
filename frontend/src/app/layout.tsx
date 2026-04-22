@@ -14,7 +14,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GMV Agent",
+  title: "OpenPylot",
   description: "Your personal AI assistant — powered by Rust",
   icons: { icon: "/favicon.ico" },
 };

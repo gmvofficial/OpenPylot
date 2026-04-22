@@ -6,7 +6,7 @@ loads, Config constructs correctly, etc.
 """
 
 import pytest
-from gmv_agent import Config
+from pylot import Config
 
 
 def test_config_defaults():

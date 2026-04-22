@@ -1,11 +1,11 @@
-# GMV Agent — Python Bindings
+# OpenPylot — Python Bindings
 
-Python bindings for [GMV Agent](https://github.com/GMV-AI/gmv-agent), a Rust-powered personal AI assistant.
+Python bindings for [OpenPylot](https://github.com/openpylot/pylot), a Rust-powered personal AI assistant.
 
 ## Installation
 
 ```bash
-pip install gmv-agent
+pip install pylot
 ```
 
 > **Note:** The Rust binary must also be installed. The Python package wraps
@@ -16,17 +16,17 @@ pip install gmv-agent
 ### Interactive Setup
 
 ```python
-from gmv_agent import GMVAgent
+from pylot import PylotAgent
 
-GMVAgent.init()  # Launches the terminal wizard
+PylotAgent.init()  # Launches the terminal wizard
 ```
 
 ### Chat
 
 ```python
-from gmv_agent import GMVAgent
+from pylot import PylotAgent
 
-agent = GMVAgent.from_config("~/.gmv-agent/secrets.enc")
+agent = PylotAgent.from_config("~/.pylot/secrets.enc")
 response = agent.chat("What meetings do I have today?")
 print(response)
 ```
@@ -34,7 +34,7 @@ print(response)
 ### Programmatic / CI Setup
 
 ```python
-from gmv_agent import GMVAgent, Config
+from pylot import PylotAgent, Config
 
 config = Config(
     llm_provider="openai",
@@ -42,7 +42,7 @@ config = Config(
     openai_api_key="sk-...",
     telegram_bot_token="...",
 )
-agent = GMVAgent(config)
+agent = PylotAgent(config)
 response = agent.chat("Schedule a meeting with John tomorrow at 3pm")
 ```
 
@@ -62,13 +62,13 @@ agent.register_tool(
 
 ## CLI
 
-Once installed, `gmv-agent` is available on your PATH:
+Once installed, `pylot` is available on your PATH:
 
 ```bash
-gmv-agent init          # Interactive setup
-gmv-agent chat "Hi"     # One-shot chat
-gmv-agent serve         # Background daemon
-gmv-agent doctor        # Diagnostics
+pylot init          # Interactive setup
+pylot chat "Hi"     # One-shot chat
+pylot serve         # Background daemon
+pylot doctor        # Diagnostics
 ```
 
 ## Development

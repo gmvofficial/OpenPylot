@@ -86,7 +86,7 @@ pub async fn authorize_google(
 
     // Send success response to browser
     let response_html = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
-        <html><body><h2>✅ GMV Agent authorized successfully!</h2>\
+        <html><body><h2>✅ OpenPylot authorized successfully!</h2>\
         <p>You can close this tab and return to the terminal.</p></body></html>";
     socket.write_all(response_html.as_bytes()).await?;
     drop(socket);
@@ -198,7 +198,7 @@ async fn get_access_token(
     let mut tokens = match load_tokens(data_dir) {
         Some(t) => t,
         None => load_tokens_from_vault(client_id, client_secret).context(
-            "Google Calendar not authorized. Connect Google Calendar from the Integrations page or run 'gmv-agent setup google-calendar'.",
+            "Google Calendar not authorized. Connect Google Calendar from the Integrations page or run 'pylot setup google-calendar'.",
         )?,
     };
 
@@ -591,7 +591,7 @@ impl Tool for CreateMeeting {
             Err(e) => {
                 tracing::error!("Failed to get Google access token: {}", e);
                 return Ok(ToolResult::err(format!(
-                    "Google Calendar authentication error: {}. Try re-authorizing with 'gmv-agent setup google-calendar'.",
+                    "Google Calendar authentication error: {}. Try re-authorizing with 'pylot setup google-calendar'.",
                     e
                 )));
             }

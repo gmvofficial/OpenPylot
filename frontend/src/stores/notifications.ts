@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Notification, WSNotificationMessage } from "@/types";
 import { WebSocketClient } from "@/lib/websocket";
 import { generateId } from "@/lib/utils";
+import { useChatStore } from "@/stores/chat";
 
 interface NotificationState {
   notifications: Notification[];
@@ -32,8 +33,8 @@ function toNotification(msg: WSNotificationMessage): Notification {
       return {
         id: generateId(),
         type: "reminder_due",
-        title: "Reminder",
-        message: msg.title,
+        title: msg.title || "Reminder",
+        message: msg.message || msg.title,
         timestamp: new Date().toISOString(),
         read: false,
       };
@@ -88,6 +89,34 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         notifications: [notification, ...state.notifications].slice(0, 100),
         unreadCount: state.unreadCount + 1,
       }));
+
+      // If it's a reminder with an agent response, inject it into the chat
+      if (msg.type === "reminder_due") {
+        const reminderMsg = msg as WSNotificationMessage & { message?: string; conversationId?: string };
+        if (reminderMsg.conversationId && reminderMsg.message) {
+          const chatStore = useChatStore.getState();
+          // Add the assistant response as a chat message
+          const assistantMsg = {
+            id: generateId(),
+            role: "assistant" as const,
+            content: reminderMsg.message,
+            timestamp: new Date().toISOString(),
+          };
+          chatStore.loadConversations();
+          // If no active conversation, switch to the reminder conversation
+          if (!chatStore.activeConversationId) {
+            useChatStore.setState({
+              activeConversationId: reminderMsg.conversationId,
+              messages: [assistantMsg],
+            });
+          } else {
+            // Append to current chat so user sees it immediately
+            useChatStore.setState({
+              messages: [...chatStore.messages, assistantMsg],
+            });
+          }
+        }
+      }
     });
 
     client.connect();

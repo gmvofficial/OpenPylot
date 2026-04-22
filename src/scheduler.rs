@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{interval, Duration};
 
-/// Embedded job scheduler for the GMV Agent.
+/// Embedded job scheduler for the OpenPylot.
 ///
 /// Runs periodic tasks like calendar sync, RSVP monitoring,
 /// meeting reminders, daily briefings, and reminder checks.
@@ -429,7 +429,7 @@ pub fn uninstall_system_service() -> Result<()> {
 fn install_launchd_service() -> Result<()> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home dir"))?;
     let binary_path = std::env::current_exe()?;
-    let plist_path = home.join("Library/LaunchAgents/com.gmv.agent.plist");
+    let plist_path = home.join("Library/LaunchAgents/com.openpylot.agent.plist");
 
     let plist = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -437,7 +437,7 @@ fn install_launchd_service() -> Result<()> {
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.gmv.agent</string>
+    <string>com.openpylot.agent</string>
     <key>ProgramArguments</key>
     <array>
         <string>{binary}</string>
@@ -449,9 +449,9 @@ fn install_launchd_service() -> Result<()> {
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>{home}/.gmv-agent/logs/agent.log</string>
+    <string>{home}/.pylot/logs/agent.log</string>
     <key>StandardErrorPath</key>
-    <string>{home}/.gmv-agent/logs/agent.error.log</string>
+    <string>{home}/.pylot/logs/agent.error.log</string>
 </dict>
 </plist>"#,
         binary = binary_path.display(),
@@ -482,7 +482,7 @@ fn install_launchd_service() -> Result<()> {
 #[cfg(target_os = "macos")]
 fn uninstall_launchd_service() -> Result<()> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home dir"))?;
-    let plist_path = home.join("Library/LaunchAgents/com.gmv.agent.plist");
+    let plist_path = home.join("Library/LaunchAgents/com.openpylot.agent.plist");
 
     if plist_path.exists() {
         std::process::Command::new("launchctl")
@@ -502,11 +502,11 @@ fn install_systemd_service() -> Result<()> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home dir"))?;
     let binary_path = std::env::current_exe()?;
     let service_dir = home.join(".config/systemd/user");
-    let service_path = service_dir.join("gmv-agent.service");
+    let service_path = service_dir.join("pylot.service");
 
     let service = format!(
         r#"[Unit]
-Description=GMV Agent Personal Assistant
+Description=OpenPylot Personal Assistant
 After=network.target
 
 [Service]
@@ -529,10 +529,10 @@ WantedBy=default.target
         .args(["--user", "daemon-reload"])
         .output()?;
     std::process::Command::new("systemctl")
-        .args(["--user", "enable", "gmv-agent"])
+        .args(["--user", "enable", "pylot"])
         .output()?;
     std::process::Command::new("systemctl")
-        .args(["--user", "start", "gmv-agent"])
+        .args(["--user", "start", "pylot"])
         .output()?;
 
     println!(
@@ -547,14 +547,14 @@ WantedBy=default.target
 #[cfg(target_os = "linux")]
 fn uninstall_systemd_service() -> Result<()> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot determine home dir"))?;
-    let service_path = home.join(".config/systemd/user/gmv-agent.service");
+    let service_path = home.join(".config/systemd/user/pylot.service");
 
     if service_path.exists() {
         std::process::Command::new("systemctl")
-            .args(["--user", "stop", "gmv-agent"])
+            .args(["--user", "stop", "pylot"])
             .output()?;
         std::process::Command::new("systemctl")
-            .args(["--user", "disable", "gmv-agent"])
+            .args(["--user", "disable", "pylot"])
             .output()?;
         std::fs::remove_file(&service_path)?;
         std::process::Command::new("systemctl")

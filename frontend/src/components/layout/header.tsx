@@ -10,8 +10,10 @@ import Link from "next/link";
 
 const pageTitles: Record<string, string> = {
   "/chat": "Chat",
+  "/social": "Social Media",
   "/setup": "Integrations",
   "/knowledge": "Knowledge Base",
+  "/tools": "Tools & Skills",
   "/dashboard": "Dashboard",
   "/dashboard/jobs": "Scheduled Jobs",
   "/dashboard/logs": "Logs",
@@ -26,7 +28,7 @@ export function Header() {
   const dropdownRef = React.useRef<HTMLDivElement>(null);
 
   // Resolve page title
-  let title = "GMV Agent";
+  let title = "OpenPylot";
   for (const [path, t] of Object.entries(pageTitles)) {
     if (pathname === path || pathname?.startsWith(path + "/")) {
       title = t;

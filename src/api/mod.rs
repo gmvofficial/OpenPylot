@@ -15,7 +15,13 @@ use tower_http::services::{ServeDir, ServeFile};
 
 use crate::agent::Agent;
 use crate::config::AppConfig;
+use crate::learning::PromptEvolution;
+use crate::llm::LlmProvider;
+use crate::mcp::McpRegistry;
 use crate::scheduler::AgentScheduler;
+use crate::smart_memory::SmartMemory;
+use crate::social::SocialManager;
+use crate::sub_agents::AgentOrchestrator;
 
 // ── Conversation persistence ─────────────────────────────────────────
 
@@ -128,9 +134,21 @@ impl ConversationStore {
 pub struct ApiState {
     pub agent: Arc<Mutex<Agent>>,
     pub config: Arc<AppConfig>,
+    pub llm: Arc<dyn LlmProvider>,
     pub scheduler: Arc<Mutex<AgentScheduler>>,
     pub start_time: std::time::Instant,
     pub conversations: Arc<ConversationStore>,
+    pub smart_memory: Option<Arc<SmartMemory>>,
+    pub mcp_registry: Option<Arc<tokio::sync::Mutex<McpRegistry>>>,
+    pub orchestrator: Option<Arc<AgentOrchestrator>>,
+    pub social_manager: Option<Arc<tokio::sync::Mutex<SocialManager>>>,
+    pub prompt_evolution: Option<Arc<tokio::sync::Mutex<PromptEvolution>>>,
+    pub memory_v2_store: Option<Arc<crate::memory_v2::MemoryStore>>,
+    pub sub_agent_store: Option<Arc<crate::sub_agents::SubAgentStore>>,
+    /// Shared slot for the current conversation ID (set by WS handler, read by SpawnSubAgentTool).
+    pub spawn_conversation_id: Arc<std::sync::Mutex<Option<String>>>,
+    /// Broadcast channel for pushing notifications to connected WebSocket clients.
+    pub notification_tx: tokio::sync::broadcast::Sender<String>,
 }
 
 // ── Router builder ───────────────────────────────────────────────────
@@ -199,6 +217,10 @@ pub fn api_router(state: ApiState, frontend_dir: Option<PathBuf>) -> Router {
         .route("/knowledge/documents", get(handlers::list_all_documents))
         .route("/knowledge/documents", post(handlers::upload_document))
         .route(
+            "/knowledge/documents/upload-stream",
+            post(handlers::upload_document_stream),
+        )
+        .route(
             "/knowledge/documents/{id}",
             delete(handlers::delete_document),
         )
@@ -215,7 +237,41 @@ pub fn api_router(state: ApiState, frontend_dir: Option<PathBuf>) -> Router {
         .route("/setup/telegram", post(handlers::setup_telegram))
         .route("/setup/whatsapp", post(handlers::setup_whatsapp))
         .route("/setup/google", post(handlers::setup_google))
-        .route("/setup/validate-key", post(handlers::validate_api_key));
+        .route("/setup/validate-key", post(handlers::validate_api_key))
+        // Skills
+        .route("/skills", get(handlers::list_skills_api))
+        .route("/skills/status", get(handlers::skills_status_api))
+        .route("/skills/update", post(handlers::skills_update_api))
+        .route("/skills/delete/{name}", delete(handlers::skill_delete_api))
+        .route("/skills/scan", post(handlers::skill_scan_api))
+        .route("/skills/detail/{name}", get(handlers::skill_detail_api))
+        // Learning
+        .route("/learning/rules", get(handlers::list_learned_rules))
+        .route("/learning/feedback", post(handlers::submit_feedback))
+        // MCP
+        .route("/mcp/servers", get(handlers::list_mcp_servers))
+        .route("/mcp/tools", get(handlers::list_mcp_tools))
+        // Social
+        .route("/social/posts", get(handlers::list_social_posts))
+        .route("/social/posts", post(handlers::create_social_post))
+        .route("/social/posts/{id}/publish", post(handlers::publish_social_post))
+        .route("/social/campaigns", get(handlers::list_campaigns))
+        .route("/social/campaigns", post(handlers::create_campaign))
+        .route("/social/platforms", get(handlers::list_social_platforms))
+        .route("/social/connect/{platform}", post(handlers::connect_social_platform))
+        .route("/social/disconnect/{platform}", post(handlers::disconnect_social_platform))
+        // Sub-agents
+        .route("/agents", get(handlers::list_sub_agents))
+        .route("/agents", post(handlers::spawn_sub_agent))
+        .route("/agents/presets", get(handlers::list_agent_presets))
+        .route("/agents/presets/{name}", get(handlers::get_agent_preset))
+        .route("/agents/{id}", get(handlers::get_sub_agent))
+        .route("/agents/{id}", delete(handlers::cancel_sub_agent))
+        // Memory v2
+        .route("/memory/v2/search", post(handlers::memory_v2_search))
+        .route("/memory/v2/units", get(handlers::memory_v2_list))
+        // SSE streaming chat
+        .route("/chat/stream", post(handlers::chat_stream));
 
     let ws_routes = Router::new()
         .route("/chat", get(ws::ws_chat_handler))

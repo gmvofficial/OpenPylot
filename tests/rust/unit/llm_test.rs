@@ -2,7 +2,7 @@
 ///
 /// Validates Message constructors, Role enum, and ToolCall structures.
 
-use gmv_agent::llm::{Message, Role, ToolCall};
+use pylot::llm::{Message, Role, ToolCall};
 
 // ── Message constructors ─────────────────────────────────────────────
 

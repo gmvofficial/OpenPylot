@@ -312,9 +312,9 @@ export default function SetupWizardPage() {
                 className={cn(
                   "w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium transition-colors",
                   i < step
-                    ? "bg-accent-success text-white"
+                    ? "bg-accent-success text-foreground"
                     : i === step
-                      ? "bg-accent text-white"
+                      ? "bg-accent text-foreground"
                       : "bg-background-tertiary text-foreground-muted"
                 )}
               >
@@ -356,7 +356,7 @@ export default function SetupWizardPage() {
               <Bot className="w-10 h-10 text-accent" />
             </div>
             <h1 className="text-3xl font-bold text-foreground mb-3">
-              Welcome to GMV Agent
+              Welcome to OpenPylot
             </h1>
             <p className="text-foreground-secondary text-lg mb-8 max-w-md mx-auto">
               Let&apos;s set up your personal AI assistant in a few quick steps.
@@ -428,7 +428,7 @@ export default function SetupWizardPage() {
                       )}
                     >
                       {state.provider === p.id && (
-                        <Check className="w-3 h-3 text-white" />
+                        <Check className="w-3 h-3 text-foreground" />
                       )}
                     </div>
                   </CardContent>
@@ -654,8 +654,8 @@ export default function SetupWizardPage() {
             <Card>
               <CardContent className="py-4">
                 <div className="flex items-center gap-4">
-                  <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-blue-500/10">
-                    <Calendar className="w-6 h-6 text-blue-400" />
+                  <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-accent/10">
+                    <Calendar className="w-6 h-6 text-accent" />
                   </div>
                   <div className="flex-1">
                     <h3 className="font-medium text-foreground">
@@ -777,7 +777,7 @@ export default function SetupWizardPage() {
               <CardContent className="py-4">
                 <div className="flex items-center gap-4">
                   <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-green-500/10">
-                    <MessageCircle className="w-6 h-6 text-green-400" />
+                    <MessageCircle className="w-6 h-6 text-accent-success" />
                   </div>
                   <div className="flex-1">
                     <h3 className="font-medium text-foreground">WhatsApp</h3>

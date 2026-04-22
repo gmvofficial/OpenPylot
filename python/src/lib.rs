@@ -1,25 +1,26 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use std::collections::HashMap;
+use std::sync::Arc;
 
-// ── GMVAgent: main Python-facing class ──────────────────────────────
+// ── PylotAgent: main Python-facing class ──────────────────────────────
 
-/// The primary GMV Agent class exposed to Python.
+/// The primary OpenPylot class exposed to Python.
 ///
 /// Usage from Python:
 /// ```python
-/// from gmv_agent import GMVAgent
+/// from pylot import PylotAgent
 ///
 /// # First-time interactive setup
-/// GMVAgent.init()
+/// PylotAgent.init()
 ///
 /// # Or load from existing config
-/// agent = GMVAgent.from_config("~/.gmv-agent/secrets.enc")
+/// agent = PylotAgent.from_config("~/.pylot/secrets.enc")
 /// response = agent.chat("What meetings do I have today?")
 /// print(response)
 /// ```
 #[pyclass]
-struct GMVAgent {
+struct PylotAgent {
     config_path: String,
     // In the real implementation these would wrap the Rust Agent core.
     // For now we store configuration that was loaded.
@@ -27,25 +28,25 @@ struct GMVAgent {
 }
 
 #[pymethods]
-impl GMVAgent {
+impl PylotAgent {
     /// Launch the interactive setup wizard.
     ///
     /// Opens browser for OAuth flows, prompts for API keys,
     /// and saves credentials to the encrypted secrets vault.
     ///
-    /// Equivalent to running `gmv-agent init` from the CLI.
+    /// Equivalent to running `pylot init` from the CLI.
     #[staticmethod]
     fn init() -> PyResult<()> {
         // Shell out to the Rust binary's init wizard so all setup logic
         // is in one place. This also works for users who `pip install`
         // the package without cloning the source.
-        let status = std::process::Command::new("gmv-agent")
+        let status = std::process::Command::new("pylot")
             .arg("init")
             .status()
             .map_err(|e| {
                 PyRuntimeError::new_err(format!(
-                    "Failed to launch gmv-agent init: {}. \
-                     Make sure the gmv-agent binary is installed and in your PATH.",
+                    "Failed to launch pylot init: {}. \
+                     Make sure the pylot binary is installed and in your PATH.",
                     e
                 ))
             })?;
@@ -59,21 +60,21 @@ impl GMVAgent {
     /// Initialize an agent instance from an existing configuration file.
     ///
     /// Args:
-    ///     config_path: Path to the secrets file (default: ~/.gmv-agent/secrets.enc)
+    ///     config_path: Path to the secrets file (default: ~/.pylot/secrets.enc)
     ///
     /// Returns:
-    ///     A configured GMVAgent instance ready for chat.
+    ///     A configured PylotAgent instance ready for chat.
     #[staticmethod]
     fn from_config(config_path: &str) -> PyResult<Self> {
         let expanded = shellexpand(config_path);
         if !std::path::Path::new(&expanded).exists() {
             return Err(PyValueError::new_err(format!(
-                "Config file not found: {}. Run GMVAgent.init() first.",
+                "Config file not found: {}. Run PylotAgent.init() first.",
                 expanded
             )));
         }
 
-        Ok(GMVAgent {
+        Ok(PylotAgent {
             config_path: expanded,
             settings: HashMap::new(),
         })
@@ -85,7 +86,7 @@ impl GMVAgent {
     ///     config: A Config object with LLM provider, API keys, etc.
     ///
     /// Returns:
-    ///     A configured GMVAgent instance.
+    ///     A configured PylotAgent instance.
     #[new]
     fn new(config: &Config) -> PyResult<Self> {
         let mut settings = HashMap::new();
@@ -98,7 +99,7 @@ impl GMVAgent {
             settings.insert("anthropic_api_key".into(), k.clone());
         }
 
-        Ok(GMVAgent {
+        Ok(PylotAgent {
             config_path: String::new(),
             settings,
         })
@@ -106,27 +107,63 @@ impl GMVAgent {
 
     /// Send a message and get a response.
     ///
-    /// Args:
-    ///     message: The user message to send.
-    ///
-    /// Returns:
-    ///     The agent's response as a string.
+    /// Uses the Rust agent core directly via the library crate.
     fn chat(&self, message: &str) -> PyResult<String> {
-        // Delegate to the gmv-agent binary for now.
-        // A future version will call the Rust agent core directly
-        // via the library crate for lower latency.
-        let output = std::process::Command::new("gmv-agent")
-            .arg("chat")
-            .arg(message)
-            .output()
-            .map_err(|e| PyRuntimeError::new_err(format!("Failed to run gmv-agent chat: {}", e)))?;
+        // Use tokio runtime to call async Rust code
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to create runtime: {e}")))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(PyRuntimeError::new_err(format!("Chat failed: {}", stderr)));
-        }
+        let msg = message.to_string();
 
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        rt.block_on(async move {
+            // Load config
+            let config = pylot_core::config::AppConfig::load()
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to load config: {e}")))?;
+
+            // Build LLM provider
+            let provider: Arc<dyn pylot_core::llm::LlmProvider> = match config.llm_provider.as_str() {
+                "openai" => {
+                    let key = config.openai_api_key.as_ref()
+                        .ok_or_else(|| PyRuntimeError::new_err("OpenAI API key not configured"))?;
+                    Arc::new(pylot_core::llm::openai::OpenAIProvider::new(
+                        key.clone(),
+                        config.llm_model.clone(),
+                        4096,
+                        0.7,
+                    ))
+                }
+                "anthropic" => {
+                    let key = config.anthropic_api_key.as_ref()
+                        .ok_or_else(|| PyRuntimeError::new_err("Anthropic API key not configured"))?;
+                    Arc::new(pylot_core::llm::anthropic::AnthropicProvider::new(
+                        key.clone(),
+                        config.llm_model.clone(),
+                        4096,
+                    ))
+                }
+                other => return Err(PyRuntimeError::new_err(format!("Unknown LLM provider: {other}"))),
+            };
+
+            // Build tool registry
+            let tool_registry = pylot_core::tools::ToolRegistry::new();
+            let skill_registry = pylot_core::skills::SkillRegistry::new();
+
+            // Create agent and chat
+            let system_prompt = format!("You are {}, a helpful AI assistant.", config.agent_name);
+            let mut agent = pylot_core::agent::Agent::new(
+                provider,
+                tool_registry,
+                skill_registry,
+                system_prompt,
+                20,
+                10,
+                config.data_dir.clone(),
+                None,
+            )
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to build agent: {e}")))?;
+
+            agent.chat(&msg).await.map_err(|e| PyRuntimeError::new_err(format!("Chat error: {e}")))
+        })
     }
 
     /// Register a custom Python tool that the agent can invoke.
@@ -156,7 +193,7 @@ impl GMVAgent {
     /// Run the agent as a background service (scheduler + webhooks).
     #[staticmethod]
     fn serve() -> PyResult<()> {
-        let status = std::process::Command::new("gmv-agent")
+        let status = std::process::Command::new("pylot")
             .arg("serve")
             .arg("--foreground")
             .status()
@@ -171,7 +208,7 @@ impl GMVAgent {
     /// Run diagnostic checks on the current configuration.
     #[staticmethod]
     fn doctor() -> PyResult<()> {
-        let status = std::process::Command::new("gmv-agent")
+        let status = std::process::Command::new("pylot")
             .arg("doctor")
             .status()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to run doctor: {}", e)))?;
@@ -185,7 +222,7 @@ impl GMVAgent {
     /// Show agent status and connected services.
     #[staticmethod]
     fn status() -> PyResult<()> {
-        let status = std::process::Command::new("gmv-agent")
+        let status = std::process::Command::new("pylot")
             .arg("status")
             .status()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to run status: {}", e)))?;
@@ -203,7 +240,7 @@ impl GMVAgent {
 ///
 /// Usage:
 /// ```python
-/// from gmv_agent import Config
+/// from pylot import Config
 ///
 /// config = Config(
 ///     llm_provider="openai",
@@ -211,7 +248,7 @@ impl GMVAgent {
 ///     openai_api_key="sk-...",
 ///     telegram_bot_token="...",
 /// )
-/// agent = GMVAgent(config)
+/// agent = PylotAgent(config)
 /// response = agent.chat("Hello!")
 /// ```
 #[pyclass]
@@ -278,13 +315,175 @@ impl Config {
 
 // ── Python module definition ────────────────────────────────────────
 
-/// GMV Agent — Python bindings for the Rust-powered personal AI assistant.
+/// OpenPylot — Python bindings for the Rust-powered personal AI assistant.
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<GMVAgent>()?;
+    m.add_class::<PylotAgent>()?;
     m.add_class::<Config>()?;
-    m.add("__version__", "0.2.0")?;
+    m.add_class::<PylotMemory>()?;
+    m.add_class::<PylotSkills>()?;
+    m.add_class::<PylotLearning>()?;
+    m.add("__version__", "0.3.0")?;
     Ok(())
+}
+
+// ── PylotMemory: Python wrapper for memory system ───────────────────
+
+/// Access the OpenPylot memory system from Python.
+#[pyclass]
+struct PylotMemory {
+    db_path: String,
+}
+
+#[pymethods]
+impl PylotMemory {
+    #[new]
+    #[pyo3(signature = (db_path = None))]
+    fn new(db_path: Option<String>) -> PyResult<Self> {
+        let path = db_path.unwrap_or_else(|| {
+            let home = dirs::home_dir().unwrap_or_default();
+            format!("{}/.pylot/data/smart_memory.db", home.display())
+        });
+        Ok(Self { db_path: path })
+    }
+
+    /// Store a memory.
+    fn remember(&self, content: &str, memory_type: Option<&str>) -> PyResult<String> {
+        let store = pylot_core::memory_v2::store::MemoryStore::open(std::path::Path::new(&self.db_path))
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to open memory store: {e}")))?;
+
+        let mem_type = match memory_type.unwrap_or("semantic") {
+            "episodic" => pylot_core::memory_v2::types::MemoryType::Episodic,
+            "preference" => pylot_core::memory_v2::types::MemoryType::Preference,
+            "project" => pylot_core::memory_v2::types::MemoryType::ProjectState,
+            "procedural" => pylot_core::memory_v2::types::MemoryType::ProceduralObservation,
+            _ => pylot_core::memory_v2::types::MemoryType::Semantic,
+        };
+
+        let unit = pylot_core::memory_v2::types::MemoryUnit::new(
+            mem_type,
+            content.to_string(),
+            "default".to_string(),
+        );
+        store.insert(&unit)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to store memory: {e}")))?;
+        Ok(unit.id.clone())
+    }
+
+    /// Search memories by keyword.
+    fn search(&self, query: &str, limit: Option<usize>) -> PyResult<Vec<HashMap<String, String>>> {
+        let store = pylot_core::memory_v2::store::MemoryStore::open(std::path::Path::new(&self.db_path))
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to open memory store: {e}")))?;
+
+        let results = store.search_keyword(query, "default", limit.unwrap_or(10))
+            .map_err(|e| PyRuntimeError::new_err(format!("Search failed: {e}")))?;
+
+        Ok(results.into_iter().map(|(unit, score)| {
+            let mut map = HashMap::new();
+            map.insert("id".to_string(), unit.id);
+            map.insert("content".to_string(), unit.content);
+            map.insert("score".to_string(), format!("{:.4}", score));
+            map
+        }).collect())
+    }
+
+    /// Get memory count.
+    fn count(&self) -> PyResult<usize> {
+        let store = pylot_core::memory_v2::store::MemoryStore::open(std::path::Path::new(&self.db_path))
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to open memory store: {e}")))?;
+        store.count("default").map_err(|e| PyRuntimeError::new_err(format!("Count failed: {e}")))
+    }
+}
+
+// ── PylotSkills: Python wrapper for skills system ───────────────────
+
+/// Access the OpenPylot skills system from Python.
+#[pyclass]
+struct PylotSkills {
+    skills_dir: String,
+}
+
+#[pymethods]
+impl PylotSkills {
+    #[new]
+    #[pyo3(signature = (skills_dir = None))]
+    fn new(skills_dir: Option<String>) -> PyResult<Self> {
+        let dir = skills_dir.unwrap_or_else(|| {
+            let home = dirs::home_dir().unwrap_or_default();
+            format!("{}/.pylot/skills", home.display())
+        });
+        Ok(Self { skills_dir: dir })
+    }
+
+    /// List all available skills.
+    fn list(&self) -> PyResult<Vec<HashMap<String, String>>> {
+        let mut skills = Vec::new();
+        let dir = std::path::Path::new(&self.skills_dir);
+        if dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                        let skill_file = path.join("SKILL.md");
+                        let mut map = HashMap::new();
+                        map.insert("name".to_string(), name);
+                        map.insert("has_skill_file".to_string(), skill_file.exists().to_string());
+                        skills.push(map);
+                    }
+                }
+            }
+        }
+        Ok(skills)
+    }
+}
+
+// ── PylotLearning: Python wrapper for learning system ───────────────
+
+/// Access the OpenPylot learning system from Python.
+#[pyclass]
+struct PylotLearning {
+    db_path: String,
+}
+
+#[pymethods]
+impl PylotLearning {
+    #[new]
+    #[pyo3(signature = (db_path = None))]
+    fn new(db_path: Option<String>) -> PyResult<Self> {
+        let path = db_path.unwrap_or_else(|| {
+            let home = dirs::home_dir().unwrap_or_default();
+            format!("{}/.pylot/data/learning.db", home.display())
+        });
+        Ok(Self { db_path: path })
+    }
+
+    /// List active learned rules.
+    fn rules(&self) -> PyResult<Vec<HashMap<String, String>>> {
+        let pe = pylot_core::learning::PromptEvolution::new(&self.db_path)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to open learning DB: {e}")))?;
+
+        let rules = pe.active_rules()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to get rules: {e}")))?;
+
+        Ok(rules.into_iter().map(|r| {
+            let mut map = HashMap::new();
+            map.insert("id".to_string(), r.id);
+            map.insert("rule_text".to_string(), r.rule_text);
+            map.insert("confidence".to_string(), format!("{:.2}", r.confidence));
+            map
+        }).collect())
+    }
+
+    /// Submit feedback on a response.
+    fn feedback(&self, session_id: &str, turn_id: &str, rating: i8, comment: Option<String>) -> PyResult<()> {
+        let pe = pylot_core::learning::PromptEvolution::new(&self.db_path)
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to open learning DB: {e}")))?;
+
+        let fb = pylot_core::learning::FeedbackProcessor::create_feedback(session_id, turn_id, rating, comment);
+        pylot_core::learning::FeedbackProcessor::process(&pe, &fb)
+            .map_err(|e| PyRuntimeError::new_err(format!("Feedback failed: {e}")))
+    }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -299,5 +498,5 @@ fn shellexpand(path: &str) -> String {
 }
 
 fn tracing_log(msg: &str) {
-    eprintln!("[gmv-agent-py] {}", msg);
+    eprintln!("[pylot-py] {}", msg);
 }

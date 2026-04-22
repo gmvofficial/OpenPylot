@@ -1,8 +1,8 @@
 {
-  "name": "gmv-agent-frontend",
-  "version": "0.2.0",
+  "name": "openpylot-frontend",
+  "version": "1.0.0",
   "private": true,
-  "description": "GMV Agent — Web Frontend & Chat Interface",
+  "description": "OpenPylot — Web Frontend & Chat Interface",
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
