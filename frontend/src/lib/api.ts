@@ -17,9 +17,59 @@ import type {
   ToolDefinition,
   Collection,
   Document,
-  SearchResult,
+  SearchKnowledgeResponse,
 } from "@/types";
 import { getApiBaseUrl } from "./utils";
+
+/**
+ * Structured API error mirroring the Rust `ApiError` shape:
+ * `{ success: false, error, code?, service?, reconnect_url? }`.
+ *
+ * UI code can branch on `code === "credentials_missing"` (combined with `service`)
+ * to render a "⚠️ Reconnect <Service>" banner instead of a generic toast.
+ */
+export class ApiClientError extends Error {
+  status: number;
+  code?: string;
+  service?: string;
+  reconnectUrl?: string;
+  raw?: string;
+
+  constructor(status: number, body: unknown, raw?: string) {
+    let message = `API error ${status}`;
+    let code: string | undefined;
+    let service: string | undefined;
+    let reconnectUrl: string | undefined;
+
+    if (body && typeof body === "object") {
+      const b = body as {
+        error?: string;
+        code?: string;
+        service?: string;
+        reconnect_url?: string;
+      };
+      if (b.error) message = b.error;
+      code = b.code;
+      service = b.service;
+      reconnectUrl = b.reconnect_url;
+    } else if (raw) {
+      message = `API error ${status}: ${raw}`;
+    }
+
+    super(message);
+    this.name = "ApiClientError";
+    this.status = status;
+    this.code = code;
+    this.service = service;
+    this.reconnectUrl = reconnectUrl;
+    this.raw = raw;
+  }
+
+  /** True when the backend is asking the user to reconnect a specific integration. */
+  get isCredentialsMissing(): boolean {
+    return this.code === "credentials_missing";
+  }
+}
 
 class ApiClient {
   private baseUrl: string;
@@ -42,8 +92,19 @@ class ApiClient {
     });
 
     if (!res.ok) {
-      const error = await res.text().catch(() => "Unknown error");
-      throw new Error(`API error ${res.status}: ${error}`);
+      // Try to parse the structured error body the Rust backend sends:
+      //   { success: false, error, code?, service?, reconnect_url? }
+      // Falls back to plain text for non-JSON responses.
+      let body: unknown = null;
+      const raw = await res.text().catch(() => "");
+      if (raw) {
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          /* not JSON */
+        }
+      }
+      throw new ApiClientError(res.status, body, raw);
     }
 
     // Handle 204 No Content
@@ -324,7 +385,7 @@ class ApiClient {
     query: string,
     collectionId?: string,
     limit?: number
-  ): Promise<SearchResult[]> {
+  ): Promise<SearchKnowledgeResponse> {
     return this.request("/api/knowledge/search", {
       method: "POST",
       body: JSON.stringify({ query, collection_id: collectionId, limit }),
@@ -500,6 +561,31 @@ class ApiClient {
 
   async cancelSubAgent(id: string) {
     return this.request(`/api/agents/${id}`, { method: "DELETE" });
+  }
+
+  /** Full run history for a sub-agent (newest first). */
+  async getSubAgentRuns(id: string) {
+    return this.request<{
+      id: string;
+      runs: Array<{
+        id: number;
+        sub_agent_id: string;
+        run_number: number;
+        timestamp: string;
+        output_text: string;
+      }>;
+      count: number;
+    }>(`/api/agents/${id}/runs`);
+  }
+
+  /** Wipe all run history for a sub-agent but keep the agent active. */
+  async clearSubAgentHistory(id: string) {
+    return this.request(`/api/agents/${id}/runs`, { method: "DELETE" });
+  }
+
+  /** Cancel (if running) AND remove the sub-agent and all of its history. */
+  async deleteSubAgentPermanent(id: string) {
+    return this.request(`/api/agents/${id}/permanent`, { method: "DELETE" });
   }
 
   // ── Agent Presets (plug-and-play manifests) ─────────────────────

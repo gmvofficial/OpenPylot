@@ -66,6 +66,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
           set({ isStreaming: true, streamingContent: "", streamingToolCalls: [] });
           break;
         case "tool_call_start": {
+          // De-duplicate by id: the backend emits ToolUseStart twice for the
+          // same tool call (once from the LLM streaming parser, once from the
+          // agent loop). Only the first occurrence should create a card.
+          if (state.streamingToolCalls.some((tc) => tc.id === msg.id)) {
+            break;
+          }
           const toolCall: ToolCall = {
             id: msg.id,
             name: msg.tool,
@@ -155,8 +161,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const p = payload as { data?: { id?: string; name?: string }; id?: string; name?: string };
             const id = p.data?.id ?? p.id ?? generateId();
             const name = p.data?.name ?? p.name ?? "tool";
-            const toolCall: ToolCall = { id, name, arguments: {}, status: "running" };
-            set((s) => ({ streamingToolCalls: [...s.streamingToolCalls, toolCall] }));
+            // De-duplicate by id: the backend emits ToolUseStart twice for the
+            // same tool call (once from the LLM streaming parser at
+            // src/llm/{anthropic,openai}.rs and once from the agent loop at
+            // src/agent.rs). Only the first occurrence should create a card —
+            // every subsequent event with the same id is a no-op so each tool
+            // result renders exactly once. This is the safety-net that keeps
+            // the UI correct for ALL tools (email, draft, search, calendar…)
+            // even if the event happens to fire more than once.
+            set((s) => {
+              if (s.streamingToolCalls.some((tc) => tc.id === id)) {
+                return s;
+              }
+              const toolCall: ToolCall = { id, name, arguments: {}, status: "running" };
+              return { streamingToolCalls: [...s.streamingToolCalls, toolCall] };
+            });
           } else if (eventType === "tool_result") {
             const p = payload as {
               data?: { id?: string; name?: string; success?: boolean; output?: string };

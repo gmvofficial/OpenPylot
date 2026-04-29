@@ -104,7 +104,15 @@ impl AgentOrchestrator {
 
             let result = tokio::time::timeout(
                 std::time::Duration::from_secs(timeout),
-                run_sub_agent(llm, tools, skill_registry, config, task_message, data_dir, max_iters),
+                run_sub_agent(
+                    llm,
+                    tools,
+                    skill_registry,
+                    config,
+                    task_message,
+                    data_dir,
+                    max_iters,
+                ),
             )
             .await;
 
@@ -131,28 +139,35 @@ impl AgentOrchestrator {
             // Persist final state to SQLite
             match &result {
                 Ok(Ok(output)) => {
-                    if let Some(ref store) = store_ref {
+                    // Always record the run (even one-shot agents get a Run #1
+                    // entry in the panel).
+                    let run_number = if let Some(ref store) = store_ref {
                         let _ = store.set_result(&agent_id, output);
-                    }
-                    // Inject result back into the originating conversation
+                        store.append_run(&agent_id, output).unwrap_or(1)
+                    } else {
+                        1
+                    };
+
+                    // Inject SHORT notification only — full output lives in the
+                    // sub-agent panel, not the chat window.
                     if let (Some(ref convos), Some(ref cid)) = (&conversations_ref, &conv_id) {
-                        let summary = if output.len() > 2000 {
-                            format!("{}...", &output[..2000])
-                        } else {
-                            output.clone()
-                        };
                         convos.add_message(
                             cid,
                             crate::api::StoredMessage {
                                 id: uuid::Uuid::new_v4().to_string(),
                                 role: "assistant".into(),
                                 content: format!(
-                                    "📋 **Sub-agent '{agent_name}' completed:**\n\n{summary}"
+                                    "✅ {agent_name} Run #{run_number} complete — see Sub-Agent panel for full output"
                                 ),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             },
                         );
-                        tracing::info!("Injected sub-agent '{}' result into conversation {}", agent_name, cid);
+                        tracing::info!(
+                            "Sub-agent '{}' run #{} completed; notification posted to conversation {}",
+                            agent_name,
+                            run_number,
+                            cid
+                        );
                     }
                 }
                 Ok(Err(e)) => {
@@ -166,7 +181,7 @@ impl AgentOrchestrator {
                                 id: uuid::Uuid::new_v4().to_string(),
                                 role: "assistant".into(),
                                 content: format!(
-                                    "❌ **Sub-agent '{agent_name}' failed:** {e}"
+                                    "❌ {agent_name} failed — see Sub-Agent panel ({e})"
                                 ),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             },
@@ -183,9 +198,7 @@ impl AgentOrchestrator {
                             crate::api::StoredMessage {
                                 id: uuid::Uuid::new_v4().to_string(),
                                 role: "assistant".into(),
-                                content: format!(
-                                    "⏰ **Sub-agent '{agent_name}' timed out.**"
-                                ),
+                                content: format!("⏰ {agent_name} timed out — see Sub-Agent panel"),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             },
                         );
@@ -196,6 +209,209 @@ impl AgentOrchestrator {
 
         self.handles.lock().await.insert(id.clone(), handle);
         Ok(id)
+    }
+
+    /// Spawn a **recurring** sub-agent that re-runs the same task every
+    /// `interval_secs` seconds, sending each iteration's result back into the
+    /// originating conversation.
+    ///
+    /// The task loops forever inside a single `tokio::spawn`. The JoinHandle
+    /// is stored in `self.handles`, so dropping the orchestrator (or calling
+    /// `cancel(id)` / `cancel_by_name(name)`) is the only way to stop it.
+    ///
+    /// `tools_factory` is invoked once per iteration so each run gets its own
+    /// fresh `ToolRegistry` + `SkillRegistry` (neither type is `Clone`).
+    pub async fn spawn_recurring<F>(
+        &self,
+        mut config: SubAgentConfig,
+        task_message: String,
+        llm: Arc<dyn LlmProvider>,
+        tools_factory: F,
+        data_dir: std::path::PathBuf,
+        conversation_id: Option<String>,
+        interval_secs: u64,
+    ) -> Result<String>
+    where
+        F: Fn() -> (ToolRegistry, SkillRegistry) + Send + Sync + 'static,
+    {
+        if interval_secs == 0 {
+            anyhow::bail!("Recurring sub-agent interval must be > 0 seconds");
+        }
+        config.interval_secs = Some(interval_secs);
+
+        // Concurrency check (same rule as one-shot spawn).
+        let agents = self.agents.lock().await;
+        let running_count = agents
+            .values()
+            .filter(|s| s.status == SubAgentStatus::Running)
+            .count();
+        if running_count >= self.max_concurrent {
+            anyhow::bail!(
+                "Maximum concurrent sub-agents reached ({}/{})",
+                running_count,
+                self.max_concurrent
+            );
+        }
+        drop(agents);
+
+        let id = config.id.clone();
+        let state = SubAgentState::new(config.clone());
+        self.agents.lock().await.insert(id.clone(), state);
+
+        if let Some(ref store) = self.store {
+            if let Err(e) = store.insert(&config, &task_message, conversation_id.as_deref()) {
+                tracing::warn!("Failed to persist recurring sub-agent to SQLite: {e}");
+            }
+        }
+
+        let agents_ref = Arc::clone(&self.agents);
+        let agent_id = id.clone();
+        let timeout = config.timeout_secs;
+        let max_iters = config.max_iterations;
+        let store_ref = self.store.clone();
+        let conversations_ref = self.conversations.clone();
+        let agent_name = config.name.clone();
+        let conv_id = conversation_id.clone();
+        let factory = Arc::new(tools_factory);
+
+        let handle = tokio::spawn(async move {
+            let started_at = chrono::Utc::now().to_rfc3339();
+            {
+                let mut agents = agents_ref.lock().await;
+                if let Some(state) = agents.get_mut(&agent_id) {
+                    state.status = SubAgentStatus::Running;
+                    state.started_at = Some(started_at.clone());
+                }
+            }
+            if let Some(ref store) = store_ref {
+                let _ = store.update_status(&agent_id, "Running", Some(&started_at), None);
+            }
+
+            // First tick fires immediately — the user sees update #1 right away,
+            // then subsequent ticks are spaced by `interval_secs`.
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            let mut iteration: u64 = 0;
+
+            loop {
+                ticker.tick().await;
+                iteration += 1;
+
+                // Build a fresh tools+skills set for this iteration.
+                let (tools, skills) = factory();
+                let cfg = config.clone();
+                let llm_clone = Arc::clone(&llm);
+                let task = task_message.clone();
+                let dd = data_dir.clone();
+
+                let res = tokio::time::timeout(
+                    std::time::Duration::from_secs(timeout),
+                    run_sub_agent(llm_clone, tools, skills, cfg, task, dd, max_iters),
+                )
+                .await;
+
+                match res {
+                    Ok(Ok(output)) => {
+                        tracing::info!(
+                            "Recurring sub-agent '{}' iteration #{} completed ({} chars)",
+                            agent_name,
+                            iteration,
+                            output.len()
+                        );
+
+                        // Update last result; status stays Running for recurring agents.
+                        {
+                            let mut agents = agents_ref.lock().await;
+                            if let Some(state) = agents.get_mut(&agent_id) {
+                                state.result = Some(output.clone());
+                                state.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                            }
+                        }
+
+                        // Persist the run to its own history row, then post a
+                        // SHORT notification to chat — the full output stays
+                        // in the Sub-Agent panel.
+                        let run_number = if let Some(ref store) = store_ref {
+                            store
+                                .append_run(&agent_id, &output)
+                                .unwrap_or(iteration as i64)
+                        } else {
+                            iteration as i64
+                        };
+
+                        if let (Some(ref convos), Some(ref cid)) = (&conversations_ref, &conv_id) {
+                            convos.add_message(
+                                cid,
+                                crate::api::StoredMessage {
+                                    id: uuid::Uuid::new_v4().to_string(),
+                                    role: "assistant".into(),
+                                    content: format!(
+                                        "✅ {agent_name} Run #{run_number} complete — see Sub-Agent panel for full output"
+                                    ),
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                },
+                            );
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(
+                            "Recurring sub-agent '{}' iteration #{} failed: {}",
+                            agent_name,
+                            iteration,
+                            e
+                        );
+                        // Don't break the loop on transient errors; surface and continue.
+                        if let (Some(ref convos), Some(ref cid)) = (&conversations_ref, &conv_id) {
+                            convos.add_message(
+                                cid,
+                                crate::api::StoredMessage {
+                                    id: uuid::Uuid::new_v4().to_string(),
+                                    role: "assistant".into(),
+                                    content: format!(
+                                        "⚠️ {agent_name} Run #{iteration} failed — see Sub-Agent panel ({e})"
+                                    ),
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                },
+                            );
+                        }
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            "Recurring sub-agent '{}' iteration #{} timed out after {}s",
+                            agent_name,
+                            iteration,
+                            timeout
+                        );
+                    }
+                }
+                // Loop continues; only `handle.abort()` (cancel) ends it.
+            }
+        });
+
+        self.handles.lock().await.insert(id.clone(), handle);
+        Ok(id)
+    }
+
+    /// Cancel any running sub-agent(s) whose `name` matches (case-insensitive).
+    /// Returns the list of cancelled agent ids. Used to power "stop updates"
+    /// requests from the user (`StopRecurringSubAgentTool`).
+    pub async fn cancel_by_name(&self, name: &str) -> Result<Vec<String>> {
+        let needle = name.trim().to_lowercase();
+        let ids: Vec<String> = self
+            .agents
+            .lock()
+            .await
+            .iter()
+            .filter(|(_, s)| {
+                s.config.name.to_lowercase().contains(&needle)
+                    && matches!(s.status, SubAgentStatus::Running | SubAgentStatus::Pending)
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for id in &ids {
+            self.cancel(id).await?;
+        }
+        Ok(ids)
     }
 
     /// Get the current status of a sub-agent.

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { apiClient } from "@/lib/api";
 import { useToastStore } from "@/stores/toast";
 import type { AgentPreset } from "@/types";
+import { MarkdownRenderer } from "@/components/chat/markdown-renderer";
 
 interface SubAgent {
   id: string;
@@ -14,6 +15,14 @@ interface SubAgent {
   completed_at?: string;
   result?: string;
   error?: string;
+}
+
+interface SubAgentRun {
+  id: number;
+  sub_agent_id: string;
+  run_number: number;
+  timestamp: string;
+  output_text: string;
 }
 
 export default function AgentsPage() {
@@ -28,6 +37,8 @@ export default function AgentsPage() {
   const [spawning, setSpawning] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<SubAgent | null>(null);
   const prevStatusMap = useRef<Record<string, string>>({});
+  // run-history per agent id, newest-first; persisted server-side in SQLite.
+  const [runsByAgent, setRunsByAgent] = useState<Record<string, SubAgentRun[]>>({});
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -111,6 +122,44 @@ export default function AgentsPage() {
 
   const cancelAgent = async (id: string) => {
     await apiClient.cancelSubAgent(id);
+    fetchAgents();
+  };
+
+  // Pull the full run history (DB-backed, persists across page refresh).
+  const fetchRuns = useCallback(async (id: string) => {
+    try {
+      const res = await apiClient.getSubAgentRuns(id);
+      setRunsByAgent((prev) => ({ ...prev, [id]: res?.runs ?? [] }));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // When an agent card is expanded, load its history. Also poll while the agent
+  // is Running so new runs appear without a manual refresh.
+  useEffect(() => {
+    if (!selectedAgent) return;
+    fetchRuns(selectedAgent.id);
+    if (selectedAgent.status !== "Running") return;
+    const t = setInterval(() => fetchRuns(selectedAgent.id), 3000);
+    return () => clearInterval(t);
+  }, [selectedAgent, fetchRuns]);
+
+  const clearHistory = async (id: string) => {
+    if (!confirm("Clear all run history for this sub-agent? The agent itself stays active.")) return;
+    await apiClient.clearSubAgentHistory(id);
+    setRunsByAgent((prev) => ({ ...prev, [id]: [] }));
+  };
+
+  const deleteAgent = async (id: string) => {
+    if (!confirm("Delete this sub-agent and ALL of its run history? This cannot be undone.")) return;
+    await apiClient.deleteSubAgentPermanent(id);
+    setRunsByAgent((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    if (selectedAgent?.id === id) setSelectedAgent(null);
     fetchAgents();
   };
 
@@ -335,9 +384,20 @@ export default function AgentsPage() {
                         e.stopPropagation();
                         cancelAgent(agent.id);
                       }}
-                      className="px-3 py-1.5 bg-accent-error/20 hover:bg-accent-error/40 text-accent-error rounded text-xs transition-colors"
+                      className="px-3 py-1.5 bg-accent-warning/20 hover:bg-accent-warning/40 text-accent-warning rounded text-xs transition-colors"
                     >
                       Cancel
+                    </button>
+                  )}
+                  {agent.status !== "Running" && agent.status !== "Pending" && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteAgent(agent.id);
+                      }}
+                      className="px-3 py-1.5 bg-accent-error/20 hover:bg-accent-error/40 text-accent-error rounded text-xs transition-colors"
+                    >
+                      Delete
                     </button>
                   )}
                 </div>
@@ -368,14 +428,6 @@ export default function AgentsPage() {
                       </div>
                     )}
                   </div>
-                  {agent.result && (
-                    <div>
-                      <span className="text-xs text-foreground-muted">Result</span>
-                      <div className="mt-1 p-3 bg-background rounded text-sm text-foreground-secondary font-mono whitespace-pre-wrap max-h-60 overflow-y-auto">
-                        {agent.result}
-                      </div>
-                    </div>
-                  )}
                   {agent.error && (
                     <div>
                       <span className="text-xs text-foreground-muted">Error</span>
@@ -384,6 +436,47 @@ export default function AgentsPage() {
                       </div>
                     </div>
                   )}
+
+                  {/* Run history — appended, never overwritten. Newest first. */}
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-foreground-muted">
+                        Run History {runsByAgent[agent.id] ? `(${runsByAgent[agent.id].length})` : ""}
+                      </span>
+                      {runsByAgent[agent.id]?.length > 0 && (
+                        <button
+                          onClick={() => clearHistory(agent.id)}
+                          className="px-2 py-1 text-[11px] bg-background-tertiary hover:bg-accent-warning/20 hover:text-accent-warning text-foreground-secondary rounded transition-colors"
+                        >
+                          Clear History
+                        </button>
+                      )}
+                    </div>
+                    {runsByAgent[agent.id]?.length ? (
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {runsByAgent[agent.id].map((run) => (
+                          <div
+                            key={run.id}
+                            className="border border-border rounded-lg bg-background"
+                          >
+                            <div className="flex items-center justify-between px-3 py-2 border-b border-border text-xs">
+                              <span className="font-medium text-foreground">Run #{run.run_number}</span>
+                              <span className="text-foreground-muted">
+                                {new Date(run.timestamp).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="p-3 text-sm text-foreground-secondary max-h-64 overflow-y-auto">
+                              <MarkdownRenderer content={run.output_text} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-foreground-muted italic px-1">
+                        No completed runs yet.
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

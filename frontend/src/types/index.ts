@@ -95,6 +95,14 @@ export interface SearchResult {
   score: number;
 }
 
+/** Response from POST /api/knowledge/search — wraps raw chunks with an LLM-synthesized answer. */
+export interface SearchKnowledgeResponse {
+  /** LLM-synthesized markdown answer built from the retrieved chunks. Null if no results or LLM unavailable. */
+  answer: string | null;
+  /** Raw chunks shown as collapsible "Sources" so the user can verify citations. */
+  results: SearchResult[];
+}
+
 // ── Scheduler types ─────────────────────────────────────────────────
 
 export interface ScheduledJob {

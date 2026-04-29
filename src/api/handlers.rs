@@ -6,6 +6,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
+use tokio::sync::Mutex as AsyncMutex;
+use tokio::task::JoinHandle;
 
 use super::ApiState;
 
@@ -41,6 +44,18 @@ pub struct ApiResponse<T: Serialize> {
 pub struct ApiError {
     pub success: bool,
     pub error: String,
+    /// Machine-readable error code so the frontend can branch on it.
+    /// Examples: `"credentials_missing"`, `"vault_corrupted"`, `"unauthorized"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    /// Service that needs attention (e.g. `"google_calendar"`, `"telegram"`).
+    /// When present together with `code = "credentials_missing"`, the UI shows
+    /// a "Reconnect" banner pointing at this service.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service: Option<String>,
+    /// Endpoint the client should POST to in order to start the reconnect flow.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reconnect_url: Option<String>,
 }
 
 fn ok<T: Serialize>(data: T) -> Json<ApiResponse<T>> {
@@ -56,8 +71,48 @@ fn err(status: StatusCode, msg: impl Into<String>) -> (StatusCode, Json<ApiError
         Json(ApiError {
             success: false,
             error: msg.into(),
+            code: None,
+            service: None,
+            reconnect_url: None,
         }),
     )
+}
+
+/// Build a structured 401 response telling the frontend that a specific
+/// integration is missing credentials and where to start the reconnect flow.
+///
+/// Used by tool-execution handlers when the vault doesn't contain the keys
+/// needed for `service`. The frontend recognises `code = "credentials_missing"`
+/// and renders a "⚠️ <Service> disconnected — Reconnect →" card.
+pub fn credentials_missing(service: &str) -> (StatusCode, Json<ApiError>) {
+    let pretty = match service {
+        "google_calendar" | "gmail" => "Google",
+        "telegram" => "Telegram",
+        "whatsapp" => "WhatsApp",
+        "github" => "GitHub",
+        "slack" => "Slack",
+        other => other,
+    };
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(ApiError {
+            success: false,
+            error: format!("{pretty} account disconnected. Please reconnect to continue."),
+            code: Some("credentials_missing".into()),
+            service: Some(service.to_string()),
+            reconnect_url: Some(format!("/api/integrations/{service}/connect")),
+        }),
+    )
+}
+
+/// Process-wide handle to the currently-running Google OAuth callback listener.
+///
+/// `connect_integration` aborts whatever is in here before spawning a new task,
+/// so a second Connect (or Disconnect → Connect) doesn't leave a stale listener
+/// bound to the redirect port with the previous CSRF state.
+fn google_oauth_task_handle() -> &'static AsyncMutex<Option<JoinHandle<()>>> {
+    static CELL: OnceLock<AsyncMutex<Option<JoinHandle<()>>>> = OnceLock::new();
+    CELL.get_or_init(|| AsyncMutex::new(None))
 }
 
 // ── GET /api/status ──────────────────────────────────────────────────
@@ -931,24 +986,56 @@ pub async fn connect_integration(
                     urlencoding::encode(&state_param),
                 );
 
-                // Spawn background task to handle OAuth callback
-                let state_clone = state_param.clone();
-                let oauth_clone = oauth_config.clone();
-                let vault_path_clone = vault_path.clone();
-                let service_clone = service.clone();
-                tokio::spawn(async move {
-                    match handle_google_oauth_callback(
-                        &oauth_clone,
-                        &state_clone,
-                        &vault_path_clone,
-                        &service_clone,
-                    )
-                    .await
-                    {
-                        Ok(_) => tracing::info!("{} OAuth completed successfully", service_clone),
-                        Err(e) => tracing::error!("{} OAuth failed: {}", service_clone, e),
+                // ── Cancel any in-flight Google OAuth listener before starting a new one ──
+                //
+                // Without this, clicking "Connect" twice (or Disconnect → Connect) leaves
+                // the previous background task bound to redirect_port with the *old* state
+                // string. The new task can't bind the port, dies silently, and the user's
+                // browser hits the stale listener — which rejects the callback with
+                // "❌ Invalid State / CSRF state mismatch".
+                //
+                // We hold a single global handle; a new connect attempt aborts the old one,
+                // waits a beat for the OS to release the port, then spawns the new task.
+                {
+                    let cell = google_oauth_task_handle();
+                    let mut guard = cell.lock().await;
+                    if let Some(prev) = guard.take() {
+                        tracing::info!(
+                            "Aborting previous Google OAuth listener before starting a new one"
+                        );
+                        prev.abort();
+                        // Give the OS a moment to release the TCP port.
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     }
-                });
+
+                    let state_clone = state_param.clone();
+                    let oauth_clone = oauth_config.clone();
+                    let vault_path_clone = vault_path.clone();
+                    let service_clone = service.clone();
+                    let handle = tokio::spawn(async move {
+                        match handle_google_oauth_callback(
+                            &oauth_clone,
+                            &state_clone,
+                            &vault_path_clone,
+                            &service_clone,
+                        )
+                        .await
+                        {
+                            Ok(_) => {
+                                tracing::info!("{} OAuth completed successfully", service_clone)
+                            }
+                            Err(e) => {
+                                tracing::error!("{} OAuth failed: {}", service_clone, e)
+                            }
+                        }
+                        // Once finished (success or failure), clear the handle so the
+                        // next connect attempt doesn't try to abort an already-finished task.
+                        let cell = google_oauth_task_handle();
+                        let mut guard = cell.lock().await;
+                        *guard = None;
+                    });
+                    *guard = Some(handle);
+                }
 
                 Ok(ok(ConnectResult {
                     auth_url: Some(auth_url),
@@ -1282,29 +1369,76 @@ async fn handle_google_oauth_callback(
     Ok(())
 }
 
+/// Optional flags accepted by `DELETE /api/integrations/{service}`.
+#[derive(Deserialize, Default)]
+pub struct DisconnectQuery {
+    /// For Google services only: when `true`, the OAuth `client_id` /
+    /// `client_secret` are kept in the vault so the next Connect skips the
+    /// credentials prompt. Default is `false` — disconnect fully clears
+    /// everything so the user can switch to a different OAuth client.
+    #[serde(default)]
+    keep_credentials: bool,
+}
+
 pub async fn disconnect_integration(
     Path(service): Path<String>,
+    Query(opts): Query<DisconnectQuery>,
     State(_state): State<ApiState>,
 ) -> Result<Json<ApiResponse<bool>>, (StatusCode, Json<ApiError>)> {
     let vault_path = crate::secrets::default_secrets_path();
-    let mut vault = crate::secrets::SecretsVault::open(&vault_path, None).map_err(|e| {
-        err(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Vault error: {e}"),
-        )
-    })?;
+
+    // If the user is disconnecting Google while a previous Connect attempt is
+    // still waiting for a callback, kill that listener so the redirect port is
+    // free for the next Connect (and so the stale CSRF state is gone).
+    if matches!(service.as_str(), "google_calendar" | "gmail") {
+        let cell = google_oauth_task_handle();
+        let mut guard = cell.lock().await;
+        if let Some(prev) = guard.take() {
+            tracing::info!("Disconnect: aborting in-flight Google OAuth listener");
+            prev.abort();
+        }
+    }
+
+    // If the vault file is missing or was just quarantined as corrupted,
+    // there's nothing to delete — disconnect is already effectively done.
+    // `open_with_recovery` guarantees we get a usable (possibly fresh) vault.
+    let (mut vault, _recovery) =
+        crate::secrets::SecretsVault::open_with_recovery(&vault_path, None).map_err(|e| {
+            err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Vault error: {e}"),
+            )
+        })?;
 
     match service.as_str() {
         "google_calendar" | "gmail" => {
             let _ = vault.delete("google.access_token");
             let _ = vault.delete("google.refresh_token");
-            // Keep client_id/secret so user can re-connect without re-entering them
+            let _ = vault.delete("google.token_expiry");
+
+            // By default also wipe the OAuth client credentials so the next
+            // Connect prompts for them again — this is what users want when
+            // switching to a different Google Cloud project / OAuth client.
+            // Pass `?keep_credentials=true` to preserve them (e.g. when only
+            // revoking the user grant but keeping the same app credentials).
+            if !opts.keep_credentials {
+                let _ = vault.delete("google.client_id");
+                let _ = vault.delete("google.client_secret");
+            }
+
             vault.save().map_err(|e| {
                 err(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Save error: {e}"),
                 )
             })?;
+
+            // Remove the on-disk Google token files so calendar/gmail tools
+            // also see the disconnect (they read these directly).
+            let data_dir = crate::secrets::pylot_home_dir().join("data");
+            let _ = std::fs::remove_file(data_dir.join("google_tokens.json"));
+            let _ = std::fs::remove_file(data_dir.join("gmail_tokens.json"));
+
             update_toml_config(&[
                 ("google_calendar.enabled", "false"),
                 ("gmail.enabled", "false"),
@@ -2164,6 +2298,30 @@ fn update_toml_config(updates: &[(&str, &str)]) {
 // ── Knowledge Base ────────────────────────────────────────────────────
 // Persistent knowledge store using JSON files in data_dir.
 
+/// Strip filesystem-unsafe characters from a user-supplied name.
+/// Prevents path traversal (`../`), absolute paths, NULs, and weird unicode.
+/// Returns at most 80 characters; falls back to "untitled" if empty.
+fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    // Disallow leading dots (hidden files / `..`) and collapse repeats.
+    let trimmed = cleaned.trim_matches('.').trim_matches('_');
+    let truncated: String = trimmed.chars().take(80).collect();
+    if truncated.is_empty() {
+        "untitled".to_string()
+    } else {
+        truncated
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct KnowledgeCollection {
     id: String,
@@ -2416,10 +2574,67 @@ pub struct SearchResultResponse {
     score: f64,
 }
 
+#[derive(Serialize)]
+pub struct SearchKnowledgeResponse {
+    /// LLM-synthesized markdown answer built from the retrieved chunks.
+    /// `None` when no chunks were found or the LLM call failed (UI falls back to raw sources).
+    answer: Option<String>,
+    /// Raw chunks shown as expandable "Sources" so the user can verify citations.
+    results: Vec<SearchResultResponse>,
+}
+
+/// Build a well-structured markdown answer from the retrieved chunks using the chat LLM.
+/// Returns `None` on any failure — caller should fall back to showing raw sources.
+async fn synthesize_search_answer(
+    llm: &std::sync::Arc<dyn crate::llm::LlmProvider>,
+    query: &str,
+    results: &[SearchResultResponse],
+) -> Option<String> {
+    use crate::llm::{LlmResponse, Message};
+
+    if results.is_empty() {
+        return None;
+    }
+
+    // Build a context block with citation tags the model is instructed to reuse.
+    let mut context_block = String::with_capacity(2048);
+    for (i, r) in results.iter().enumerate() {
+        context_block.push_str(&format!(
+            "[doc:{}#{}] (score {:.2})\n{}\n\n",
+            r.document_title,
+            i + 1,
+            r.score,
+            r.content.trim()
+        ));
+    }
+
+    let system = Message::system(
+        "You are a knowledge-base assistant. Answer the user's question using ONLY the document \
+         excerpts provided. Format your answer in clean, well-structured Markdown: use a short \
+         opening summary, then headings or bullet points where appropriate, and code blocks for \
+         code or commands. Cite supporting facts inline using the `[doc:Title#N]` markers shown \
+         next to each excerpt. If the excerpts do not contain enough information to answer, say \
+         so plainly in one sentence — do not invent facts.",
+    );
+    let user = Message::user(format!(
+        "Question: {query}\n\n--- Document excerpts ---\n{context_block}\n--- End of excerpts ---\n\nWrite the answer now."
+    ));
+
+    match llm.chat(&[system, user], &[]).await {
+        Ok(LlmResponse::Text(t)) => Some(t),
+        Ok(LlmResponse::TextWithThinking { text, .. }) => Some(text),
+        Ok(LlmResponse::ToolCalls(_)) => None,
+        Err(e) => {
+            tracing::warn!("KB search synthesis LLM call failed: {e}");
+            None
+        }
+    }
+}
+
 pub async fn search_knowledge(
     State(state): State<ApiState>,
     Json(body): Json<SearchKnowledgeRequest>,
-) -> Json<ApiResponse<Vec<SearchResultResponse>>> {
+) -> Json<ApiResponse<SearchKnowledgeResponse>> {
     let limit = body.limit.unwrap_or(10);
 
     // Use semantic search via SmartMemory if available
@@ -2446,7 +2661,11 @@ pub async fn search_knowledge(
                         }
                     })
                     .collect();
-                return ok(items);
+                let answer = synthesize_search_answer(&state.llm, &body.query, &items).await;
+                return ok(SearchKnowledgeResponse {
+                    answer,
+                    results: items,
+                });
             }
             Err(e) => {
                 tracing::warn!("Semantic search failed, falling back to keyword: {e}");
@@ -2511,7 +2730,8 @@ pub async fn search_knowledge(
     });
     results.truncate(limit);
 
-    ok(results)
+    let answer = synthesize_search_answer(&state.llm, &body.query, &results).await;
+    ok(SearchKnowledgeResponse { answer, results })
 }
 
 /// Upload a text document to a collection
@@ -2540,22 +2760,18 @@ pub async fn upload_document(
         created_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    let chunks = if new_doc.content.is_empty() {
-        0
-    } else {
-        (new_doc.content.len() / 500) + 1
-    };
     let size = new_doc.content.len();
 
     documents.push(new_doc.clone());
     save_json_vec(&path, &documents);
 
-    // Save extracted content to a .txt file
+    // Save extracted content to a .txt file (sanitized name to prevent traversal)
     let knowledge_texts_dir = data_dir.join("knowledge_texts");
     if let Err(e) = std::fs::create_dir_all(&knowledge_texts_dir) {
         tracing::warn!("Failed to create knowledge_texts dir: {e}");
     } else {
-        let txt_filename = format!("{}.txt", body.title);
+        let safe_title = sanitize_filename(&body.title);
+        let txt_filename = format!("{}-{}.txt", &new_doc.id, safe_title);
         let txt_path = knowledge_texts_dir.join(&txt_filename);
         match std::fs::write(&txt_path, &body.content) {
             Ok(_) => tracing::info!("Saved document text to {}", txt_path.display()),
@@ -2563,7 +2779,33 @@ pub async fn upload_document(
         }
     }
 
-    // TODO: Database indexing skipped for now
+    // ── Real RAG indexing: chunk + embed + insert into knowledge_chunks ──
+    let mut chunk_count = 0usize;
+    if !new_doc.content.trim().is_empty() {
+        if let Some(ref smart_mem) = state.smart_memory {
+            let chunks = crate::document_chunker::chunk_document(
+                &new_doc.title,
+                &new_doc.content,
+                &new_doc.source,
+                &new_doc.collection_id,
+                state.config.memory_chunk_size,
+                state.config.memory_chunk_overlap,
+            );
+            chunk_count = chunks.len();
+            match smart_mem
+                .index_document_chunks_batched(&chunks, 64, |_, _| {})
+                .await
+            {
+                Ok(n) => tracing::info!("Indexed {} chunks for '{}'", n, new_doc.title),
+                Err(e) => tracing::error!("Failed to index '{}': {e}", new_doc.title),
+            }
+        } else {
+            tracing::warn!(
+                "SmartMemory not available — '{}' saved but NOT indexed",
+                new_doc.title
+            );
+        }
+    }
 
     tracing::info!("Knowledge document uploaded: {}", body.title);
 
@@ -2572,7 +2814,7 @@ pub async fn upload_document(
         collection_id: new_doc.collection_id,
         title: new_doc.title,
         source: new_doc.source,
-        chunk_count: chunks,
+        chunk_count,
         size,
         created_at: new_doc.created_at,
     })
@@ -2603,7 +2845,7 @@ pub async fn upload_document_stream(
             collection_id: body.collection_id.clone(),
             title: body.title.clone(),
             content: body.content.clone(),
-            source: body.source.unwrap_or_else(|| "upload".into()),
+            source: body.source.clone().unwrap_or_else(|| "upload".into()),
             created_at: chrono::Utc::now().to_rfc3339(),
         };
 
@@ -2623,7 +2865,8 @@ pub async fn upload_document_stream(
         if let Err(e) = std::fs::create_dir_all(&knowledge_texts_dir) {
             tracing::warn!("Failed to create knowledge_texts dir: {e}");
         } else {
-            let txt_filename = format!("{}.txt", body.title);
+            let safe_title = sanitize_filename(&body.title);
+            let txt_filename = format!("{}-{}.txt", &new_doc.id, safe_title);
             let txt_path = knowledge_texts_dir.join(&txt_filename);
             match std::fs::write(&txt_path, &body.content) {
                 Ok(_) => tracing::info!("Saved document text to {}", txt_path.display()),
@@ -2631,13 +2874,103 @@ pub async fn upload_document_stream(
             }
         }
 
-        let chunk_count = if body.content.is_empty() {
-            0
-        } else {
-            (body.content.len() / 500) + 1
-        };
+        // ── Real RAG indexing: chunk + embed + insert into knowledge_chunks ──
+        let mut chunk_count = 0usize;
 
-        // TODO: Database indexing skipped for now
+        if body.content.trim().is_empty() {
+            tracing::warn!("Skipping indexing of empty document '{}'", body.title);
+        } else if let Some(ref smart_mem) = state_clone.smart_memory {
+            let _ = tx
+                .send(Ok(Event::default().data(
+                    serde_json::json!({"phase": "chunking", "message": "Chunking document..."})
+                        .to_string(),
+                )))
+                .await;
+
+            let chunk_size = state_clone.config.memory_chunk_size;
+            let chunk_overlap = state_clone.config.memory_chunk_overlap;
+            let chunks = crate::document_chunker::chunk_document(
+                &body.title,
+                &body.content,
+                &new_doc.source,
+                &body.collection_id,
+                chunk_size,
+                chunk_overlap,
+            );
+            chunk_count = chunks.len();
+
+            tracing::info!(
+                "Chunked '{}' into {} chunks ({}w each, {}w overlap)",
+                body.title,
+                chunk_count,
+                chunk_size,
+                chunk_overlap,
+            );
+
+            let _ = tx
+                .send(Ok(Event::default().data(
+                    serde_json::json!({
+                        "phase": "indexing",
+                        "message": format!("Embedding {} chunks...", chunk_count),
+                        "total": chunk_count,
+                        "completed": 0
+                    })
+                    .to_string(),
+                )))
+                .await;
+
+            // Stream-friendly progress callback uses a shared sender via try_send.
+            // We can't await inside the FnMut closure, so use a small unbounded channel
+            // pumped from the closure into the SSE channel.
+            let (ptx, mut prx) = tokio::sync::mpsc::unbounded_channel::<(usize, usize)>();
+            let tx_progress = tx.clone();
+            let progress_pump = tokio::spawn(async move {
+                while let Some((completed, total)) = prx.recv().await {
+                    let _ = tx_progress
+                        .send(Ok(Event::default().data(
+                            serde_json::json!({
+                                "phase": "indexing",
+                                "message": format!("Embedded {}/{} chunks", completed, total),
+                                "total": total,
+                                "completed": completed
+                            })
+                            .to_string(),
+                        )))
+                        .await;
+                }
+            });
+
+            // Embedding batch size of 64 keeps OpenAI requests well under token limits.
+            match smart_mem
+                .index_document_chunks_batched(&chunks, 64, move |completed, total| {
+                    let _ = ptx.send((completed, total));
+                })
+                .await
+            {
+                Ok(n) => {
+                    tracing::info!("Indexed {} chunks for '{}'", n, body.title);
+                }
+                Err(e) => {
+                    tracing::error!("Failed to index '{}': {e}", body.title);
+                    let _ = tx
+                        .send(Ok(Event::default().data(
+                            serde_json::json!({
+                                "phase": "error",
+                                "message": format!("Indexing failed: {}", e)
+                            })
+                            .to_string(),
+                        )))
+                        .await;
+                }
+            }
+            // progress_pump will end when ptx is dropped (after closure finishes)
+            let _ = progress_pump.await;
+        } else {
+            tracing::warn!(
+                "SmartMemory not available — document '{}' saved but NOT indexed",
+                body.title
+            );
+        }
 
         // Send completion
         let _ = tx
@@ -2869,7 +3202,8 @@ pub async fn extract_document_multipart(
             if let Err(e) = std::fs::create_dir_all(&knowledge_texts_dir) {
                 tracing::warn!("Failed to create knowledge_texts dir: {e}");
             } else {
-                let txt_filename = format!("{}.txt", filename);
+                let safe_name = sanitize_filename(&filename);
+                let txt_filename = format!("extract-{}.txt", safe_name);
                 let txt_path = knowledge_texts_dir.join(&txt_filename);
                 match std::fs::write(&txt_path, &content.content) {
                     Ok(_) => tracing::info!("Saved extracted text to {}", txt_path.display()),
@@ -2984,7 +3318,11 @@ pub async fn skills_update_api(
         entry.enabled = Some(enabled);
     }
     if let Some(api_key) = body.api_key {
-        entry.api_key = if api_key.is_empty() { None } else { Some(api_key) };
+        entry.api_key = if api_key.is_empty() {
+            None
+        } else {
+            Some(api_key)
+        };
     }
 
     match serde_json::to_string_pretty(&configs) {
@@ -3005,7 +3343,13 @@ pub async fn skill_delete_api(
 ) -> Json<ApiResponse<serde_json::Value>> {
     // Find the skill directory across all sources
     let mut removed = false;
-    let categories: &[&str] = &["agentic", "coding", "communication", "productivity", "research"];
+    let categories: &[&str] = &[
+        "agentic",
+        "coding",
+        "communication",
+        "productivity",
+        "research",
+    ];
 
     // Try local skills dir first (~/.pylot/skills/)
     let local_dir = crate::skills::SkillLoader::local_skills_dir();
@@ -3029,7 +3373,9 @@ pub async fn skill_delete_api(
                 let skill_path = dir.join(category).join(&name);
                 if skill_path.exists() {
                     if let Err(e) = std::fs::remove_dir_all(&skill_path) {
-                        return ok(serde_json::json!({ "error": format!("Failed to delete: {}", e) }));
+                        return ok(
+                            serde_json::json!({ "error": format!("Failed to delete: {}", e) }),
+                        );
                     }
                     removed = true;
                     break;
@@ -3052,25 +3398,23 @@ pub async fn skill_detail_api(
 ) -> Json<ApiResponse<serde_json::Value>> {
     let registry = crate::skills::SkillRegistry::load_all(None);
     match registry.get(&name) {
-        Some(skill) => {
-            ok(serde_json::json!({
-                "name": skill.meta.name,
-                "description": skill.meta.description,
-                "version": skill.meta.version,
-                "category": skill.meta.category,
-                "tags": skill.meta.tags,
-                "author": skill.meta.author,
-                "os": skill.meta.os,
-                "source": format!("{:?}", skill.source),
-                "source_path": skill.source_path.display().to_string(),
-                "content": skill.content,
-                "requires": skill.meta.requires.as_ref().map(|r| serde_json::json!({
-                    "bins": r.bins,
-                    "env": r.env,
-                    "tools": r.tools,
-                })),
-            }))
-        }
+        Some(skill) => ok(serde_json::json!({
+            "name": skill.meta.name,
+            "description": skill.meta.description,
+            "version": skill.meta.version,
+            "category": skill.meta.category,
+            "tags": skill.meta.tags,
+            "author": skill.meta.author,
+            "os": skill.meta.os,
+            "source": format!("{:?}", skill.source),
+            "source_path": skill.source_path.display().to_string(),
+            "content": skill.content,
+            "requires": skill.meta.requires.as_ref().map(|r| serde_json::json!({
+                "bins": r.bins,
+                "env": r.env,
+                "tools": r.tools,
+            })),
+        })),
         None => ok(serde_json::json!({ "error": "Skill not found" })),
     }
 }
@@ -3173,20 +3517,21 @@ pub async fn list_mcp_servers(
     }
 }
 
-pub async fn list_mcp_tools(
-    State(state): State<ApiState>,
-) -> Json<ApiResponse<serde_json::Value>> {
+pub async fn list_mcp_tools(State(state): State<ApiState>) -> Json<ApiResponse<serde_json::Value>> {
     if let Some(ref registry) = state.mcp_registry {
         let reg = registry.lock().await;
         let tools = reg.list_tools();
         let count = tools.len();
-        let items: Vec<serde_json::Value> = tools.iter().map(|(prefixed, def)| {
-            serde_json::json!({
-                "name": prefixed,
-                "description": def.description,
-                "server": def.server_name,
+        let items: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|(prefixed, def)| {
+                serde_json::json!({
+                    "name": prefixed,
+                    "description": def.description,
+                    "server": def.server_name,
+                })
             })
-        }).collect();
+            .collect();
         ok(serde_json::json!({ "tools": items, "count": count }))
     } else {
         ok(serde_json::json!({ "tools": [], "count": 0, "message": "MCP not enabled" }))
@@ -3224,7 +3569,11 @@ pub async fn create_social_post(
         let mut manager = sm.lock().await;
         let platform = match crate::social::Platform::from_str(&body.platform) {
             Some(p) => p,
-            None => return ok(serde_json::json!({"error": format!("Unknown platform: {}", body.platform)})),
+            None => {
+                return ok(
+                    serde_json::json!({"error": format!("Unknown platform: {}", body.platform)}),
+                )
+            }
         };
         let post_id = manager.create_post(
             platform,
@@ -3262,9 +3611,7 @@ pub async fn publish_social_post(
     }
 }
 
-pub async fn list_campaigns(
-    State(state): State<ApiState>,
-) -> Json<ApiResponse<serde_json::Value>> {
+pub async fn list_campaigns(State(state): State<ApiState>) -> Json<ApiResponse<serde_json::Value>> {
     if let Some(ref sm) = state.social_manager {
         let manager = sm.lock().await;
         let campaigns = manager.list_campaigns();
@@ -3288,7 +3635,9 @@ pub async fn create_campaign(
 ) -> Json<ApiResponse<serde_json::Value>> {
     if let Some(ref sm) = state.social_manager {
         let mut manager = sm.lock().await;
-        let platforms: Vec<crate::social::Platform> = body.platforms.iter()
+        let platforms: Vec<crate::social::Platform> = body
+            .platforms
+            .iter()
             .filter_map(|p| crate::social::Platform::from_str(p))
             .collect();
         let desc = body.description.as_deref().unwrap_or("");
@@ -3308,7 +3657,11 @@ pub async fn list_social_platforms(
 ) -> Json<ApiResponse<serde_json::Value>> {
     if let Some(ref sm) = state.social_manager {
         let manager = sm.lock().await;
-        let connected: Vec<String> = manager.connected_platforms().iter().map(|p| format!("{:?}", p)).collect();
+        let connected: Vec<String> = manager
+            .connected_platforms()
+            .iter()
+            .map(|p| format!("{:?}", p))
+            .collect();
         ok(serde_json::json!({
             "connected": connected,
             "count": connected.len()
@@ -3348,18 +3701,21 @@ pub async fn list_sub_agents(
     if let Some(ref orch) = state.orchestrator {
         let agents = orch.list().await;
         let count = agents.len();
-        let items: Vec<serde_json::Value> = agents.iter().map(|a| {
-            serde_json::json!({
-                "id": a.config.id,
-                "name": a.config.name,
-                "agent_type": format!("{:?}", a.config.agent_type),
-                "status": format!("{:?}", a.status),
-                "result": a.result,
-                "error": a.error,
-                "started_at": a.started_at,
-                "completed_at": a.completed_at,
+        let items: Vec<serde_json::Value> = agents
+            .iter()
+            .map(|a| {
+                serde_json::json!({
+                    "id": a.config.id,
+                    "name": a.config.name,
+                    "agent_type": format!("{:?}", a.config.agent_type),
+                    "status": format!("{:?}", a.status),
+                    "result": a.result,
+                    "error": a.error,
+                    "started_at": a.started_at,
+                    "completed_at": a.completed_at,
+                })
             })
-        }).collect();
+            .collect();
         ok(serde_json::json!({ "agents": items, "count": count }))
     } else {
         ok(serde_json::json!({ "agents": [], "count": 0, "message": "Sub-agents not enabled" }))
@@ -3387,7 +3743,18 @@ pub async fn spawn_sub_agent(
         let skills = crate::skills::SkillRegistry::load_all(None);
         let data_dir = state.config.data_dir.clone();
 
-        match orch.spawn(config, body.task.clone(), llm, tools, skills, data_dir, None).await {
+        match orch
+            .spawn(
+                config,
+                body.task.clone(),
+                llm,
+                tools,
+                skills,
+                data_dir,
+                None,
+            )
+            .await
+        {
             Ok(id) => ok(serde_json::json!({
                 "id": id,
                 "name": body.name,
@@ -3434,6 +3801,56 @@ pub async fn cancel_sub_agent(
         }
     } else {
         ok(serde_json::json!({"error": "Sub-agent system not enabled"}))
+    }
+}
+
+/// GET /api/agents/{id}/runs — full run history for a sub-agent, newest first.
+pub async fn list_sub_agent_runs(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref store) = state.sub_agent_store {
+        match store.list_runs(&id) {
+            Ok(runs) => ok(serde_json::json!({ "id": id, "runs": runs, "count": runs.len() })),
+            Err(e) => ok(serde_json::json!({"error": e.to_string()})),
+        }
+    } else {
+        ok(serde_json::json!({ "id": id, "runs": [], "count": 0 }))
+    }
+}
+
+/// DELETE /api/agents/{id}/runs — clear run history but keep the sub-agent active.
+pub async fn clear_sub_agent_runs(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref store) = state.sub_agent_store {
+        match store.clear_runs(&id) {
+            Ok(n) => ok(serde_json::json!({ "id": id, "cleared": n })),
+            Err(e) => ok(serde_json::json!({"error": e.to_string()})),
+        }
+    } else {
+        ok(serde_json::json!({"error": "Sub-agent store not enabled"}))
+    }
+}
+
+/// DELETE /api/agents/{id}/permanent — cancel (if running), then remove the
+/// sub-agent record AND its run history. Use this for the panel's [Delete] button.
+pub async fn delete_sub_agent_permanent(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    // Best-effort: cancel any running task first so we don't orphan a tokio handle.
+    if let Some(ref orch) = state.orchestrator {
+        let _ = orch.cancel(&id).await;
+    }
+    if let Some(ref store) = state.sub_agent_store {
+        match store.delete_agent(&id) {
+            Ok(_) => ok(serde_json::json!({ "id": id, "deleted": true })),
+            Err(e) => ok(serde_json::json!({"error": e.to_string()})),
+        }
+    } else {
+        ok(serde_json::json!({"error": "Sub-agent store not enabled"}))
     }
 }
 
@@ -3507,18 +3924,24 @@ pub async fn memory_v2_search(
     State(state): State<ApiState>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Json<ApiResponse<serde_json::Value>> {
-    let user_id = params.get("user_id").map(|s| s.as_str()).unwrap_or("default");
+    let user_id = params
+        .get("user_id")
+        .map(|s| s.as_str())
+        .unwrap_or("default");
     if let Some(ref store) = state.memory_v2_store {
         let units = store.list(user_id, None, 50).unwrap_or_default();
-        let items: Vec<serde_json::Value> = units.iter().map(|u| {
-            serde_json::json!({
-                "id": u.id,
-                "type": u.memory_type.as_str(),
-                "content": u.content,
-                "importance": u.importance,
-                "created_at": u.created_at,
+        let items: Vec<serde_json::Value> = units
+            .iter()
+            .map(|u| {
+                serde_json::json!({
+                    "id": u.id,
+                    "type": u.memory_type.as_str(),
+                    "content": u.content,
+                    "importance": u.importance,
+                    "created_at": u.created_at,
+                })
             })
-        }).collect();
+            .collect();
         ok(serde_json::json!({ "units": items, "count": items.len() }))
     } else {
         ok(serde_json::json!({ "units": [], "count": 0, "message": "Memory v2 not enabled" }))
@@ -3529,25 +3952,31 @@ pub async fn memory_v2_list(
     State(state): State<ApiState>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Json<ApiResponse<serde_json::Value>> {
-    let user_id = params.get("user_id").map(|s| s.as_str()).unwrap_or("default");
+    let user_id = params
+        .get("user_id")
+        .map(|s| s.as_str())
+        .unwrap_or("default");
     if let Some(ref store) = state.memory_v2_store {
         let units = store.list(user_id, None, 100).unwrap_or_default();
-        let items: Vec<serde_json::Value> = units.iter().map(|u| {
-            serde_json::json!({
-                "id": u.id,
-                "type": u.memory_type.as_str(),
-                "content": u.content,
-                "summary": u.summary,
-                "importance": u.importance,
-                "confidence": u.confidence,
-                "access_count": u.access_count,
-                "entities": u.entities,
-                "topics": u.topics,
-                "tags": u.tags,
-                "created_at": u.created_at,
-                "updated_at": u.updated_at,
+        let items: Vec<serde_json::Value> = units
+            .iter()
+            .map(|u| {
+                serde_json::json!({
+                    "id": u.id,
+                    "type": u.memory_type.as_str(),
+                    "content": u.content,
+                    "summary": u.summary,
+                    "importance": u.importance,
+                    "confidence": u.confidence,
+                    "access_count": u.access_count,
+                    "entities": u.entities,
+                    "topics": u.topics,
+                    "tags": u.tags,
+                    "created_at": u.created_at,
+                    "updated_at": u.updated_at,
+                })
             })
-        }).collect();
+            .collect();
         ok(serde_json::json!({ "units": items, "count": items.len() }))
     } else {
         ok(serde_json::json!({ "units": [], "count": 0, "message": "Memory v2 not enabled" }))

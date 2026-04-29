@@ -14,10 +14,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import type { Collection, Document, SearchResult } from "@/types";
+import type { Collection, Document, SearchKnowledgeResponse, SearchResult } from "@/types";
 import { apiClient } from "@/lib/api";
 import { useToastStore } from "@/stores/toast";
 import { formatRelativeTime, formatBytes, getApiBaseUrl } from "@/lib/utils";
+import { MarkdownRenderer } from "@/components/chat/markdown-renderer";
 import {
   BookOpen,
   Search,
@@ -127,13 +128,15 @@ function DocumentRow({
 /* -------------------------------------------------------------------------- */
 
 function SearchResults({
-  results,
+  data,
   query,
 }: {
-  results: SearchResult[];
+  data: SearchKnowledgeResponse;
   query: string;
 }) {
-  if (results.length === 0) {
+  const { answer, results } = data;
+
+  if (results.length === 0 && !answer) {
     return (
       <div className="py-8 text-center text-sm text-foreground-muted">
         No results found for &quot;{query}&quot;
@@ -142,22 +145,51 @@ function SearchResults({
   }
 
   return (
-    <div className="space-y-3">
-      {results.map((r, i) => (
-        <Card key={i}>
-          <CardContent className="py-3">
-            <div className="mb-2 flex items-center justify-between">
-              <Badge variant="outline" className="text-xs">
-                {r.document_title ?? r.documentName ?? "Unknown source"}
-              </Badge>
+    <div className="space-y-4">
+      {/* LLM-synthesized answer */}
+      {answer && (
+        <Card>
+          <CardContent className="py-4">
+            <div className="mb-2 flex items-center gap-2">
+              <Badge variant="default" className="text-xs">Answer</Badge>
               <span className="text-xs text-foreground-muted">
-                Score: {(r.score * 100).toFixed(1)}%
+                Synthesized from {results.length} source{results.length === 1 ? "" : "s"}
               </span>
             </div>
-            <p className="text-sm leading-relaxed text-foreground-secondary">{r.content || r.chunk}</p>
+            <div className="prose prose-sm max-w-none text-sm leading-relaxed text-foreground">
+              <MarkdownRenderer content={answer} />
+            </div>
           </CardContent>
         </Card>
-      ))}
+      )}
+
+      {/* Raw sources (always available so the user can verify citations) */}
+      {results.length > 0 && (
+        <details className="group" open={!answer}>
+          <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wider text-foreground-muted hover:text-foreground">
+            Sources ({results.length})
+          </summary>
+          <div className="mt-3 space-y-3">
+            {results.map((r, i) => (
+              <Card key={i}>
+                <CardContent className="py-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <Badge variant="outline" className="text-xs">
+                      [doc:{r.document_title ?? r.documentName ?? "Unknown"}#{i + 1}]
+                    </Badge>
+                    <span className="text-xs text-foreground-muted">
+                      Score: {(r.score * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="text-sm leading-relaxed text-foreground-secondary">
+                    <MarkdownRenderer content={r.content || r.chunk || ""} />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -486,7 +518,7 @@ export default function KnowledgePage() {
   const [loadingCollections, setLoadingCollections] = useState(true);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchKnowledgeResponse | null>(null);
   const [searching, setSearching] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState("");
   const [showNewCollection, setShowNewCollection] = useState(false);
@@ -631,9 +663,9 @@ export default function KnowledgePage() {
       {searchResults && (
         <div>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-foreground-muted">
-            Search Results ({searchResults.length})
+            Search Results ({searchResults.results.length})
           </h2>
-          <SearchResults results={searchResults} query={searchQuery} />
+          <SearchResults data={searchResults} query={searchQuery} />
         </div>
       )}
 

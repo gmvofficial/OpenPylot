@@ -103,50 +103,108 @@ pub struct SlackSecrets {
 const SALT_LEN: usize = 16;
 const NONCE_LEN: usize = 12;
 
+/// Why opening the vault produced a fresh-empty one instead of the on-disk content.
+///
+/// Returned via [`SecretsVault::open_with_recovery`] so callers (and the API layer)
+/// can tell the user "your saved credentials are gone, please reconnect" instead of
+/// silently swallowing the loss.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VaultRecovery {
+    /// Vault opened normally (existed and decrypted, or was freshly created on first run).
+    Ok,
+    /// File existed but couldn't be decrypted (wrong machine, tampered, truncated, etc.).
+    /// The corrupted file has been renamed to `<path>.corrupted-<timestamp>` and a fresh
+    /// empty vault was created in its place.
+    RecoveredFromCorruption { quarantined_path: PathBuf },
+}
+
 impl SecretsVault {
     /// Open (or create) the secrets vault at the given path.
     ///
-    /// If the file doesn't exist, creates a new empty vault.
-    /// If it exists, decrypts and loads the data.
+    /// **Resilient behaviour:** if the file exists but is corrupted (truncated,
+    /// wrong machine ID / passphrase, malformed JSON inside), the corrupted file is
+    /// renamed to `secrets.enc.corrupted-<unix-ts>` and a fresh empty vault is
+    /// returned. This prevents the entire app from refusing to start because of one
+    /// damaged file.
+    ///
+    /// Use [`Self::open_with_recovery`] if you need to know *whether* recovery
+    /// happened (e.g. to surface a "please reconnect your accounts" banner).
     pub fn open(path: &Path, passphrase: Option<&str>) -> Result<Self> {
+        Self::open_with_recovery(path, passphrase).map(|(v, _)| v)
+    }
+
+    /// Same as [`Self::open`] but also returns whether the on-disk file was
+    /// corrupted and had to be quarantined.
+    pub fn open_with_recovery(
+        path: &Path,
+        passphrase: Option<&str>,
+    ) -> Result<(Self, VaultRecovery)> {
         let machine_id = get_machine_id()?;
-        let (key, salt) = if path.exists() {
-            // Read existing file to extract salt
-            let raw = std::fs::read(path)
-                .with_context(|| format!("Failed to read secrets file: {}", path.display()))?;
-            if raw.len() < SALT_LEN + NONCE_LEN + 1 {
-                anyhow::bail!("Secrets file is corrupted (too small)");
-            }
-            let mut salt = [0u8; SALT_LEN];
-            salt.copy_from_slice(&raw[..SALT_LEN]);
-            let key = derive_key(&machine_id, passphrase, &salt)?;
-            (key, salt)
-        } else {
-            // Generate new salt for a new vault
-            let mut salt = [0u8; SALT_LEN];
-            OsRng.fill_bytes(&mut salt);
-            let key = derive_key(&machine_id, passphrase, &salt)?;
-            (key, salt)
-        };
 
-        let data = if path.exists() {
-            let raw = std::fs::read(path)?;
-            decrypt_data(&raw, &key)?
-        } else {
-            let now = chrono::Utc::now().to_rfc3339();
-            SecretsData {
-                schema: "pylot-secrets-v1".to_string(),
-                created_at: now.clone(),
-                updated_at: now,
-                ..Default::default()
-            }
-        };
+        // Fast path: file does not exist → fresh empty vault.
+        if !path.exists() {
+            let vault = Self::new_empty(path, &machine_id, passphrase)?;
+            return Ok((vault, VaultRecovery::Ok));
+        }
 
+        // Try to decode the on-disk file. If anything fails, quarantine and start fresh.
+        match Self::try_load_existing(path, &machine_id, passphrase) {
+            Ok(vault) => Ok((vault, VaultRecovery::Ok)),
+            Err(e) => {
+                tracing::warn!(
+                    "Secrets vault at {} could not be opened ({:#}). \
+                     Quarantining and creating a fresh empty vault.",
+                    path.display(),
+                    e
+                );
+                let quarantined = quarantine_corrupted_vault(path)?;
+                let vault = Self::new_empty(path, &machine_id, passphrase)?;
+                Ok((
+                    vault,
+                    VaultRecovery::RecoveredFromCorruption {
+                        quarantined_path: quarantined,
+                    },
+                ))
+            }
+        }
+    }
+
+    /// Best-effort load of an existing vault file. All failure modes (truncated,
+    /// wrong key, bad JSON) collapse to `Err` so the caller can quarantine.
+    fn try_load_existing(path: &Path, machine_id: &str, passphrase: Option<&str>) -> Result<Self> {
+        let raw = std::fs::read(path)
+            .with_context(|| format!("Failed to read secrets file: {}", path.display()))?;
+        if raw.len() < SALT_LEN + NONCE_LEN + 1 {
+            anyhow::bail!("Secrets file is corrupted (too small)");
+        }
+        let mut salt = [0u8; SALT_LEN];
+        salt.copy_from_slice(&raw[..SALT_LEN]);
+        let key = derive_key(machine_id, passphrase, &salt)?;
+        let data = decrypt_data(&raw, &key)?;
         Ok(Self {
             path: path.to_path_buf(),
             key,
             salt,
             data,
+        })
+    }
+
+    /// Build a brand-new empty vault in memory (not yet written to disk).
+    fn new_empty(path: &Path, machine_id: &str, passphrase: Option<&str>) -> Result<Self> {
+        let mut salt = [0u8; SALT_LEN];
+        OsRng.fill_bytes(&mut salt);
+        let key = derive_key(machine_id, passphrase, &salt)?;
+        let now = chrono::Utc::now().to_rfc3339();
+        Ok(Self {
+            path: path.to_path_buf(),
+            key,
+            salt,
+            data: SecretsData {
+                schema: "pylot-secrets-v1".to_string(),
+                created_at: now.clone(),
+                updated_at: now,
+                ..Default::default()
+            },
         })
     }
 
@@ -179,11 +237,7 @@ impl SecretsVault {
                 secrets.org_id = Some(value.to_string());
             }
             "llm.anthropic.api_key" => {
-                let secrets = self
-                    .data
-                    .llm
-                    .anthropic
-                    .get_or_insert_with(Default::default);
+                let secrets = self.data.llm.anthropic.get_or_insert_with(Default::default);
                 secrets.api_key = value.to_string();
             }
             "google.client_id" => self.data.google.client_id = Some(value.to_string()),
@@ -232,19 +286,12 @@ impl SecretsVault {
     pub fn save(&self) -> Result<()> {
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent).with_context(|| {
-                format!(
-                    "Failed to create secrets directory: {}",
-                    parent.display()
-                )
+                format!("Failed to create secrets directory: {}", parent.display())
             })?;
         }
         let encrypted = encrypt_data(&self.data, &self.key, &self.salt)?;
-        std::fs::write(&self.path, encrypted).with_context(|| {
-            format!(
-                "Failed to write secrets file: {}",
-                self.path.display()
-            )
-        })?;
+        std::fs::write(&self.path, encrypted)
+            .with_context(|| format!("Failed to write secrets file: {}", self.path.display()))?;
         Ok(())
     }
 
@@ -383,8 +430,8 @@ fn decrypt_data(raw: &[u8], key: &[u8; 32]) -> Result<SecretsData> {
         .decrypt(nonce, ciphertext)
         .map_err(|_| anyhow::anyhow!("Decryption failed — wrong passphrase or corrupted file"))?;
 
-    let data: SecretsData = serde_json::from_slice(&plaintext)
-        .context("Failed to parse decrypted secrets data")?;
+    let data: SecretsData =
+        serde_json::from_slice(&plaintext).context("Failed to parse decrypted secrets data")?;
 
     Ok(data)
 }
@@ -438,6 +485,35 @@ fn hostname_fallback() -> String {
 
 // ── Helpers for config integration ───────────────────────────────────
 
+/// Rename a corrupted vault file to `<path>.corrupted-<unix-ts>` so the user
+/// can inspect it later without it blocking app startup. Returns the new path.
+///
+/// We deliberately *rename* rather than delete: if the cause was a temporary
+/// machine-ID mismatch (e.g. a restored backup on a new laptop), the encrypted
+/// bytes still contain the user's data and could be recovered with the right key.
+fn quarantine_corrupted_vault(path: &Path) -> Result<PathBuf> {
+    let ts = chrono::Utc::now().timestamp();
+    let mut new_name = path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_else(|| std::ffi::OsString::from("secrets.enc"));
+    new_name.push(format!(".corrupted-{}", ts));
+    let new_path = path.with_file_name(new_name);
+    std::fs::rename(path, &new_path).with_context(|| {
+        format!(
+            "Failed to quarantine corrupted vault: {} -> {}",
+            path.display(),
+            new_path.display()
+        )
+    })?;
+    tracing::warn!(
+        "Quarantined corrupted secrets file: {} -> {}",
+        path.display(),
+        new_path.display()
+    );
+    Ok(new_path)
+}
+
 /// Default path to the secrets file.
 pub fn default_secrets_path() -> PathBuf {
     dirs::home_dir()
@@ -468,9 +544,7 @@ mod tests {
         // Create a new vault
         let mut vault = SecretsVault::open(&path, None).unwrap();
         vault.set("llm.openai.api_key", "sk-test-key-123").unwrap();
-        vault
-            .set("telegram.bot_token", "123456:ABCdef")
-            .unwrap();
+        vault.set("telegram.bot_token", "123456:ABCdef").unwrap();
         vault.save().unwrap();
 
         // Re-open and verify
@@ -552,10 +626,7 @@ mod tests {
         let decrypted = decrypt_data(&encrypted, &key).unwrap();
 
         assert_eq!(decrypted.schema, data.schema);
-        assert_eq!(
-            decrypted.llm.openai.as_ref().unwrap().api_key,
-            "sk-test"
-        );
+        assert_eq!(decrypted.llm.openai.as_ref().unwrap().api_key, "sk-test");
     }
 
     #[test]

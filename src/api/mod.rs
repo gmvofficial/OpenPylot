@@ -267,6 +267,9 @@ pub fn api_router(state: ApiState, frontend_dir: Option<PathBuf>) -> Router {
         .route("/agents/presets/{name}", get(handlers::get_agent_preset))
         .route("/agents/{id}", get(handlers::get_sub_agent))
         .route("/agents/{id}", delete(handlers::cancel_sub_agent))
+        .route("/agents/{id}/runs", get(handlers::list_sub_agent_runs))
+        .route("/agents/{id}/runs", delete(handlers::clear_sub_agent_runs))
+        .route("/agents/{id}/permanent", delete(handlers::delete_sub_agent_permanent))
         // Memory v2
         .route("/memory/v2/search", post(handlers::memory_v2_search))
         .route("/memory/v2/units", get(handlers::memory_v2_list))

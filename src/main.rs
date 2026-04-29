@@ -6,28 +6,28 @@ mod document_chunker;
 mod hooks;
 mod init;
 mod jobs;
+mod learning;
 mod llm;
+mod marketing;
+mod mcp;
 mod memory;
+mod memory_v2;
 mod oauth;
 mod permissions;
 mod scheduler;
 mod secrets;
 mod sessions;
+mod skills;
 mod smart_memory;
+mod social;
+mod streaming;
+mod sub_agents;
 mod telegram_bot;
 mod terminal;
-mod skills;
 mod tools;
 mod traits;
 mod usage;
 mod webhooks;
-mod memory_v2;
-mod streaming;
-mod sub_agents;
-mod mcp;
-mod learning;
-mod social;
-mod marketing;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -615,7 +615,12 @@ fn list_skills() {
         println!("{}", "No skills loaded.".bright_yellow());
         println!("  Place SKILL.md files in ./skills/ or ~/.pylot/skills/");
     } else {
-        println!("{}", format!("Loaded {} skill(s):", all.len()).bright_blue().bold());
+        println!(
+            "{}",
+            format!("Loaded {} skill(s):", all.len())
+                .bright_blue()
+                .bold()
+        );
         for skill in &all {
             let category = skill.meta.category.as_deref().unwrap_or("general");
             let source = match skill.source {
@@ -636,7 +641,10 @@ fn list_skills() {
 
 // ── Build LLM provider and tool registry ─────────────────────────────
 
-fn build_tool_registry(config: &AppConfig, smart_memory: Option<&Arc<SmartMemory>>) -> ToolRegistry {
+fn build_tool_registry(
+    config: &AppConfig,
+    smart_memory: Option<&Arc<SmartMemory>>,
+) -> ToolRegistry {
     let mut tools = ToolRegistry::new();
     let data_dir = config.data_dir.clone();
 
@@ -651,13 +659,27 @@ fn build_tool_registry(config: &AppConfig, smart_memory: Option<&Arc<SmartMemory
 
     // -- Coding Tools (always available) --
     let workspace_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    tools.register(Box::new(crate::tools::bash::BashTool::new(workspace_root.clone())));
-    tools.register(Box::new(crate::tools::file_ops::ReadFileTool::new(workspace_root.clone())));
-    tools.register(Box::new(crate::tools::file_ops::WriteFileTool::new(workspace_root.clone())));
-    tools.register(Box::new(crate::tools::file_ops::EditFileTool::new(workspace_root.clone())));
-    tools.register(Box::new(crate::tools::search::GlobSearchTool::new(workspace_root.clone())));
-    tools.register(Box::new(crate::tools::search::GrepSearchTool::new(workspace_root.clone())));
-    tools.register(Box::new(crate::tools::search::ListDirectoryTool::new(workspace_root)));
+    tools.register(Box::new(crate::tools::bash::BashTool::new(
+        workspace_root.clone(),
+    )));
+    tools.register(Box::new(crate::tools::file_ops::ReadFileTool::new(
+        workspace_root.clone(),
+    )));
+    tools.register(Box::new(crate::tools::file_ops::WriteFileTool::new(
+        workspace_root.clone(),
+    )));
+    tools.register(Box::new(crate::tools::file_ops::EditFileTool::new(
+        workspace_root.clone(),
+    )));
+    tools.register(Box::new(crate::tools::search::GlobSearchTool::new(
+        workspace_root.clone(),
+    )));
+    tools.register(Box::new(crate::tools::search::GrepSearchTool::new(
+        workspace_root.clone(),
+    )));
+    tools.register(Box::new(crate::tools::search::ListDirectoryTool::new(
+        workspace_root,
+    )));
     tracing::info!("Coding tools registered (bash, file_ops, search)");
 
     // -- Notes (always available) --
@@ -741,8 +763,14 @@ fn build_tool_registry(config: &AppConfig, smart_memory: Option<&Arc<SmartMemory
     // -- Memory tools (if smart memory is enabled) --
     if let Some(sm) = smart_memory {
         use crate::tools::memory_tools::*;
-        tools.register(Box::new(RememberFact::new(Arc::clone(sm), "default".to_string())));
-        tools.register(Box::new(RecallMemories::new(Arc::clone(sm), "default".to_string())));
+        tools.register(Box::new(RememberFact::new(
+            Arc::clone(sm),
+            "default".to_string(),
+        )));
+        tools.register(Box::new(RecallMemories::new(
+            Arc::clone(sm),
+            "default".to_string(),
+        )));
         tools.register(Box::new(SearchKnowledgeTool::new(Arc::clone(sm))));
         tools.register(Box::new(ForgetFact::new(Arc::clone(sm))));
         tracing::info!("Memory tools loaded (smart memory)");
@@ -751,7 +779,10 @@ fn build_tool_registry(config: &AppConfig, smart_memory: Option<&Arc<SmartMemory
     tools
 }
 
-fn build_components(config: &AppConfig, smart_memory: Option<&Arc<SmartMemory>>) -> Result<(Arc<dyn LlmProvider>, ToolRegistry, skills::SkillRegistry)> {
+fn build_components(
+    config: &AppConfig,
+    smart_memory: Option<&Arc<SmartMemory>>,
+) -> Result<(Arc<dyn LlmProvider>, ToolRegistry, skills::SkillRegistry)> {
     // Build LLM provider
     let llm: Arc<dyn LlmProvider> = match config.llm_provider.as_str() {
         "anthropic" => {
@@ -772,9 +803,7 @@ fn build_components(config: &AppConfig, smart_memory: Option<&Arc<SmartMemory>>)
             let api_key = config
                 .openai_api_key
                 .as_ref()
-                .context(
-                    "OPENAI_API_KEY not set. Run 'pylot init' or add it to your .env file.",
-                )?
+                .context("OPENAI_API_KEY not set. Run 'pylot init' or add it to your .env file.")?
                 .clone();
             Arc::new(OpenAIProvider::new(
                 api_key,
@@ -801,13 +830,14 @@ async fn init_smart_memory(config: &AppConfig) -> Option<Arc<SmartMemory>> {
     }
     match SmartMemory::new(config).await {
         Ok(sm) => {
-            tracing::info!("Smart memory initialized (SQLite: {})", config.memory_db_name);
+            tracing::info!(
+                "Smart memory initialized (SQLite: {})",
+                config.memory_db_name
+            );
             Some(Arc::new(sm))
         }
         Err(e) => {
-            tracing::warn!(
-                "Smart memory unavailable (falling back to legacy): {e}"
-            );
+            tracing::warn!("Smart memory unavailable (falling back to legacy): {e}");
             None
         }
     }
@@ -945,7 +975,9 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
     let (llm, tools, skill_registry) = build_components(config, smart_memory.as_ref())?;
     let llm_for_api = Arc::clone(&llm);
     let system_prompt = build_system_prompt(config);
-    let memory_provider = smart_memory.clone().map(|sm| sm as Arc<dyn crate::traits::MemoryProvider>);
+    let memory_provider = smart_memory
+        .clone()
+        .map(|sm| sm as Arc<dyn crate::traits::MemoryProvider>);
     let mut agent = Agent::new(
         llm,
         tools,
@@ -1033,25 +1065,32 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
         );
         spawn_tool.current_conversation_id = spawn_conv_id.clone();
         agent.register_tool(Box::new(spawn_tool));
+        // Companion tool that lets the LLM stop recurring sub-agents on
+        // user requests like "stop updates" / "cancel the news fetcher".
+        let stop_tool = crate::tools::spawn_agent::StopRecurringSubAgentTool::new(orch.clone());
+        agent.register_tool(Box::new(stop_tool));
         tracing::info!("Sub-agent orchestrator initialized (max 4 concurrent)");
         Some(orch)
     };
 
     // Social media manager
     let social_manager = {
-        let mut manager = match crate::social::SocialManager::with_db(&config.data_dir.join("social.db")) {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!("Social DB init failed, using in-memory: {e}");
-                crate::social::SocialManager::new()
-            }
-        };
+        let mut manager =
+            match crate::social::SocialManager::with_db(&config.data_dir.join("social.db")) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::warn!("Social DB init failed, using in-memory: {e}");
+                    crate::social::SocialManager::new()
+                }
+            };
         let mut count = 0usize;
 
         if config.social_twitter_enabled {
             if let (Some(ref key), Some(ref secret), Some(ref at), Some(ref ats)) = (
-                &config.twitter_api_key, &config.twitter_api_secret,
-                &config.twitter_access_token, &config.twitter_access_token_secret,
+                &config.twitter_api_key,
+                &config.twitter_api_secret,
+                &config.twitter_access_token,
+                &config.twitter_access_token_secret,
             ) {
                 let mut extra = std::collections::HashMap::new();
                 extra.insert("access_token_secret".to_string(), ats.clone());
@@ -1069,7 +1108,9 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
             }
         }
         if config.social_bluesky_enabled {
-            if let (Some(ref handle), Some(ref password)) = (&config.bluesky_handle, &config.bluesky_app_password) {
+            if let (Some(ref handle), Some(ref password)) =
+                (&config.bluesky_handle, &config.bluesky_app_password)
+            {
                 let mut extra = std::collections::HashMap::new();
                 extra.insert("handle".to_string(), handle.clone());
                 extra.insert("app_password".to_string(), password.clone());
@@ -1087,7 +1128,9 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
             }
         }
         if config.social_linkedin_enabled {
-            if let (Some(ref token), Some(ref pid)) = (&config.linkedin_access_token, &config.linkedin_person_id) {
+            if let (Some(ref token), Some(ref pid)) =
+                (&config.linkedin_access_token, &config.linkedin_person_id)
+            {
                 let mut extra = std::collections::HashMap::new();
                 extra.insert("person_id".to_string(), pid.clone());
                 manager.add_provider(Box::new(crate::social::LinkedInProvider::new(
@@ -1317,8 +1360,9 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
 
 fn resolve_frontend_dir() -> Option<std::path::PathBuf> {
     // 1. Check PYLOT_FRONTEND_DIR env var (with GMV_FRONTEND_DIR fallback)
-    if let Ok(dir) = std::env::var("PYLOT_FRONTEND_DIR")
-        .or_else(|_| std::env::var("GMV_FRONTEND_DIR")) {
+    if let Ok(dir) =
+        std::env::var("PYLOT_FRONTEND_DIR").or_else(|_| std::env::var("GMV_FRONTEND_DIR"))
+    {
         let p = std::path::PathBuf::from(dir);
         if p.exists() {
             return Some(p);
@@ -1566,10 +1610,7 @@ fn run_config_command(action: ConfigAction) -> Result<()> {
                 "{} Config set is currently managed through the init wizard.",
                 "ℹ".bright_blue()
             );
-            println!(
-                "  Run: {} to update settings",
-                "pylot init".bright_green()
-            );
+            println!("  Run: {} to update settings", "pylot init".bright_green());
             println!("  Key: {}, Value: {}", key.dimmed(), value.dimmed());
             Ok(())
         }
@@ -1629,12 +1670,21 @@ async fn run_memory_command(action: MemoryAction, config: &AppConfig) -> Result<
     let db_path = config.data_dir.join("smart_memory.db");
     match action {
         MemoryAction::Search { query } => {
-            println!("{} Searching memories for: {}", "🔍".bright_blue(), query.bright_white());
+            println!(
+                "{} Searching memories for: {}",
+                "🔍".bright_blue(),
+                query.bright_white()
+            );
             if let Some(ref sm) = init_smart_memory(config).await {
                 match sm.search_knowledge(&query, 10).await {
                     Ok(results) => {
                         for (i, r) in results.iter().enumerate() {
-                            println!("  {}. [score: {:.2}] {}", i + 1, r.score, r.content.chars().take(100).collect::<String>());
+                            println!(
+                                "  {}. [score: {:.2}] {}",
+                                i + 1,
+                                r.score,
+                                r.content.chars().take(100).collect::<String>()
+                            );
                         }
                         if results.is_empty() {
                             println!("  No memories found.");
@@ -1652,7 +1702,10 @@ async fn run_memory_command(action: MemoryAction, config: &AppConfig) -> Result<
             println!("  Exists: {}", db_path.exists());
         }
         MemoryAction::Consolidate => {
-            println!("{} Memory consolidation not yet wired to memory_v2", "⚠".bright_yellow());
+            println!(
+                "{} Memory consolidation not yet wired to memory_v2",
+                "⚠".bright_yellow()
+            );
         }
     }
     Ok(())
@@ -1682,7 +1735,10 @@ async fn run_agents_command(action: AgentsAction, config: &AppConfig) -> Result<
             if all.is_empty() {
                 println!("{} No agent presets found.", "ℹ".bright_blue());
                 if let Some(dir) = AgentManifestRegistry::user_agents_dir() {
-                    println!("  Drop .toml files into: {}", dir.display().to_string().bright_cyan());
+                    println!(
+                        "  Drop .toml files into: {}",
+                        dir.display().to_string().bright_cyan()
+                    );
                 }
                 println!("  Or bundled presets at: {}", "./agents/".bright_cyan());
             } else {
@@ -1712,7 +1768,11 @@ async fn run_agents_command(action: AgentsAction, config: &AppConfig) -> Result<
         }
         AgentsAction::Show { name } => match registry.get(&name) {
             Some(m) => {
-                println!("{} {}", "Preset:".bright_blue().bold(), m.name.bright_cyan());
+                println!(
+                    "{} {}",
+                    "Preset:".bright_blue().bold(),
+                    m.name.bright_cyan()
+                );
                 println!("  type:         {}", m.agent_type);
                 if let Some(ref path) = m.source_path {
                     println!("  source:       {} ({})", path.display(), m.source.as_str());
@@ -1847,43 +1907,36 @@ fn run_social_command(action: SocialAction) -> Result<()> {
 fn run_learn_command(action: LearnAction, config: &AppConfig) -> Result<()> {
     let db_path = config.data_dir.join("learning.db");
     match action {
-        LearnAction::Rules => {
-            match learning::PromptEvolution::new(&db_path.to_string_lossy()) {
-                Ok(pe) => match pe.active_rules() {
-                    Ok(rules) => {
-                        println!("{} Learned Rules ({})", "🧠".bright_blue(), rules.len());
-                        for rule in &rules {
-                            println!(
-                                "  [{:.2}] {} (✓{} ✗{})",
-                                rule.confidence,
-                                rule.rule_text,
-                                rule.success_count,
-                                rule.failure_count
-                            );
-                        }
-                        if rules.is_empty() {
-                            println!("  No rules learned yet.");
-                        }
+        LearnAction::Rules => match learning::PromptEvolution::new(&db_path.to_string_lossy()) {
+            Ok(pe) => match pe.active_rules() {
+                Ok(rules) => {
+                    println!("{} Learned Rules ({})", "🧠".bright_blue(), rules.len());
+                    for rule in &rules {
+                        println!(
+                            "  [{:.2}] {} (✓{} ✗{})",
+                            rule.confidence, rule.rule_text, rule.success_count, rule.failure_count
+                        );
                     }
-                    Err(e) => println!("{} Failed to load rules: {e}", "✗".bright_red()),
-                },
-                Err(e) => println!("{} Failed to open learning DB: {e}", "✗".bright_red()),
-            }
-        }
+                    if rules.is_empty() {
+                        println!("  No rules learned yet.");
+                    }
+                }
+                Err(e) => println!("{} Failed to load rules: {e}", "✗".bright_red()),
+            },
+            Err(e) => println!("{} Failed to open learning DB: {e}", "✗".bright_red()),
+        },
         LearnAction::Stats => {
             println!("{} Learning Statistics", "📊".bright_blue());
             println!("  Database: {}", db_path.display());
             println!("  Exists: {}", db_path.exists());
         }
-        LearnAction::Prune => {
-            match learning::PromptEvolution::new(&db_path.to_string_lossy()) {
-                Ok(pe) => match pe.prune_dead_rules() {
-                    Ok(count) => println!("{} Pruned {} dead rules", "🧹".bright_blue(), count),
-                    Err(e) => println!("{} Prune failed: {e}", "✗".bright_red()),
-                },
-                Err(e) => println!("{} Failed to open learning DB: {e}", "✗".bright_red()),
-            }
-        }
+        LearnAction::Prune => match learning::PromptEvolution::new(&db_path.to_string_lossy()) {
+            Ok(pe) => match pe.prune_dead_rules() {
+                Ok(count) => println!("{} Pruned {} dead rules", "🧹".bright_blue(), count),
+                Err(e) => println!("{} Prune failed: {e}", "✗".bright_red()),
+            },
+            Err(e) => println!("{} Failed to open learning DB: {e}", "✗".bright_red()),
+        },
     }
     Ok(())
 }
@@ -1899,7 +1952,11 @@ fn run_completion(shell: &str) -> Result<()> {
         "fish" => clap_complete::Shell::Fish,
         "powershell" | "ps" => clap_complete::Shell::PowerShell,
         _ => {
-            println!("{} Unknown shell: {}. Supported: bash, zsh, fish, powershell", "✗".bright_red(), shell);
+            println!(
+                "{} Unknown shell: {}. Supported: bash, zsh, fish, powershell",
+                "✗".bright_red(),
+                shell
+            );
             return Ok(());
         }
     };
@@ -1933,7 +1990,7 @@ Guidelines:
 2. **When users ask about recent news, updates, current events, or anything you are not certain about**, ALWAYS use `web_search` first to find current information, then optionally use `web_extract` to get full article content from the most relevant URLs. Never say you cannot find information without searching first.
 3. **When users ask you to analyze, read, or load documents**, use the `load_document` tool with the file path and document type (pdf, docx, txt, json, csv, xml, html, xlsx, xls, xlsb). You CAN access local files on the user's system.
 4. When creating calendar events, clarify the timezone if ambiguous. Use ISO 8601 format for datetimes.
-5. Before sending messages (Telegram/WhatsApp) or emails (Gmail), confirm the recipient and content with the user unless they're explicit.
+5. Before sending messages (Telegram/WhatsApp), confirm the recipient and content with the user unless they're explicit.
 5. For notes, use descriptive titles and appropriate tags for easy retrieval.
 6. Be concise in responses but thorough in tool usage.
 7. If a tool is not configured (e.g., missing API key), inform the user and suggest how to set it up.
@@ -1942,7 +1999,36 @@ Guidelines:
 10. Current date and time: {datetime}
 11. If the user asks you to remember something, create a note for it.
 12. For meetings, always try to include a Google Meet link by using the create_meeting tool.
-13. Always confirm with the user before sending emails or drafts via Gmail.
+13. **EMAIL WORKFLOW (Gmail) — read carefully, two distinct cases:**
+
+    **Case 1 — User asks to SEND an email** ("send an email to X", "email X about Y", "reply to this email", etc.):
+    This is a STRICT, MANDATORY multi-step process. NEVER skip steps. Do NOT call `gmail_send` or `gmail_reply` on the first turn under any circumstances.
+
+    - **Step A — Show draft in chat (no tool call):** Compose the email and display it to the user directly in the chat as plain text in this exact format:
+
+          ✉️ Draft email — please review
+
+          To: <recipient>
+          Subject: <subject>
+
+          <body>
+
+          Reply with "send" to send it, or tell me what to change.
+
+    - **Step B — Wait for the user's response.**
+        - If the user requests changes (e.g. "make it shorter", "change subject", "add a sentence about…"), produce a NEW updated draft using the SAME format from Step A and ask again. Repeat as many times as needed.
+        - Only when the user gives an explicit confirmation ("send", "send it", "yes send", "confirmed", "looks good send it", or similar unambiguous approval) may you proceed to Step C.
+        - Vague replies like "ok", "thanks", "great" are NOT confirmation — ask explicitly: "Should I send it now?"
+
+    - **Step C — Send.** Only after explicit confirmation, call `gmail_send` (or `gmail_reply` for replies) with the exact final draft contents the user approved. After the tool succeeds, briefly confirm to the user that the email was sent.
+
+    **Case 2 — User asks to CREATE / SAVE a DRAFT in Gmail** ("create a draft", "save this as a draft in gmail", "draft an email and save it to my drafts folder", "make a gmail draft"):
+    This means the user wants the draft saved into their actual Gmail Drafts folder — NOT just shown in chat. In this case:
+        - You MAY call `gmail_draft_create` directly (no in-chat preview/confirmation loop is required, because the user explicitly asked for a draft, not a send).
+        - After creation, briefly tell the user the draft was saved to Gmail Drafts and show them the To / Subject / Body so they can review it in Gmail or here.
+        - If the user later says "send that draft" / "send it now", follow the Case 1 workflow before calling `gmail_draft_send` (show the draft in chat, get explicit "send" confirmation, then call `gmail_draft_send`).
+
+    **How to tell the cases apart:** look at the verb the user used. "send / email / reply" → Case 1. "draft / save as draft / create a draft" → Case 2. If genuinely ambiguous, ask: "Do you want me to save this as a draft in Gmail, or prepare it here for you to review and send?"
 14. The create_meeting tool automatically sends email invitations to all attendees — no additional notification step is needed.
 15. After a tool succeeds, report the result to the user. Do NOT keep calling tools unnecessarily.
 16. IMPORTANT: When you have a tool available for an action, you MUST call the tool. Never pretend you performed an action by describing it in text — always use the actual tool call."#,

@@ -10,5 +10,5 @@ pub mod types;
 
 pub use manifest::{AgentManifest, AgentManifestRegistry, ManifestSource};
 pub use orchestrator::AgentOrchestrator;
-pub use store::SubAgentStore;
+pub use store::{StoredSubAgent, SubAgentRun, SubAgentStore};
 pub use types::*;

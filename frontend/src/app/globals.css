@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* KaTeX styles for math equation rendering ($...$ inline, $$...$$ block) */
+@import "katex/dist/katex.min.css";
+
 :root {
   /* Color Palette — Dark mode (default) */
   --bg-primary: #0a0a0a;

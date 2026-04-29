@@ -125,6 +125,7 @@ impl AgentManifest {
             timeout_secs: self.timeout_secs,
             max_iterations: self.max_iterations,
             parent_id: None,
+            interval_secs: None,
         }
     }
 }

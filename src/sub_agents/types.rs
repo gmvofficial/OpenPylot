@@ -18,6 +18,11 @@ pub struct SubAgentConfig {
     pub max_iterations: usize,
     /// Parent agent id (for nesting).
     pub parent_id: Option<String>,
+    /// If `Some(n)`, this agent runs recurrently every `n` seconds (background updates).
+    /// If `None`, the agent runs exactly once. Recurrent agents only stop on
+    /// explicit cancel (via `AgentOrchestrator::cancel` / `cancel_by_name`).
+    #[serde(default)]
+    pub interval_secs: Option<u64>,
 }
 
 impl Default for SubAgentConfig {
@@ -32,6 +37,7 @@ impl Default for SubAgentConfig {
             timeout_secs: 300,
             max_iterations: 10,
             parent_id: None,
+            interval_secs: None,
         }
     }
 }

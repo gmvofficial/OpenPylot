@@ -72,6 +72,47 @@ const PLATFORM_COLOR: Record<string, string> = {
   threads: "text-foreground-secondary",
 };
 
+const PLATFORM_LABEL: Record<string, string> = {
+  twitter: "X (Twitter)",
+  linkedin: "LinkedIn",
+  facebook: "Facebook",
+  instagram: "Instagram",
+  youtube: "YouTube",
+  bluesky: "Bluesky",
+  tiktok: "TikTok",
+  reddit: "Reddit",
+  mastodon: "Mastodon",
+  threads: "Threads",
+  pinterest: "Pinterest",
+  medium: "Medium",
+  devto: "Dev.to",
+  hashnode: "Hashnode",
+  wordpress: "WordPress",
+  discord: "Discord",
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Platform release tiers                                                    */
+/*                                                                            */
+/*  Tier 1 — Stable, shown by default in v1                                   */
+/*  Tier 2 — Shown with a "Beta" badge & setup warning                        */
+/*  Tier 3 — Visible only as "Coming Soon" cards (not selectable)             */
+/*                                                                            */
+/*  Note: Slack and niche dev-only platforms (mastodon, devto, hashnode,      */
+/*  medium, wordpress) live under Integrations, not under Social Media.       */
+/* -------------------------------------------------------------------------- */
+const TIER1_PLATFORMS = ["linkedin", "discord", "reddit"] as const;
+const TIER2_PLATFORMS = ["twitter", "facebook", "bluesky"] as const;
+const TIER3_PLATFORMS = ["instagram", "tiktok", "youtube", "threads", "pinterest"] as const;
+
+const SUPPORTED_PLATFORMS: string[] = [...TIER1_PLATFORMS, ...TIER2_PLATFORMS];
+
+const TIER2_NOTE: Record<string, string> = {
+  twitter: "Requires X API Basic plan ($100/mo) for write access.",
+  facebook: "Paste a Page Access Token from Meta Graph API Explorer.",
+  bluesky: "New — uses an app password from Bluesky settings.",
+};
+
 /* -------------------------------------------------------------------------- */
 /*  Compose / Schedule Post                                                   */
 /* -------------------------------------------------------------------------- */
@@ -130,7 +171,7 @@ function ComposeCard({
             }`}
           >
             {charCount}
-            {selectedPlatforms.includes("twitter") && " / 280"}
+            {selectedPlatforms.includes("twitter") && " / 280"} 
           </span>
         </div>
 
@@ -143,10 +184,12 @@ function ComposeCard({
             {connectedPlatforms.map((p) => {
               const Icon = PLATFORM_ICON[p] || Globe;
               const isSelected = selectedPlatforms.includes(p);
+              const isBeta = (TIER2_PLATFORMS as readonly string[]).includes(p);
               return (
                 <button
                   key={p}
                   onClick={() => togglePlatform(p)}
+                  title={TIER2_NOTE[p]}
                   className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all border ${
                     isSelected
                       ? "bg-accent/20 border-accent text-accent"
@@ -154,7 +197,12 @@ function ComposeCard({
                   }`}
                 >
                   <Icon className="h-3.5 w-3.5" />
-                  {p}
+                  {PLATFORM_LABEL[p] ?? p}
+                  {isBeta && (
+                    <span className="ml-1 rounded bg-amber-500/20 px-1 py-0.5 text-[9px] uppercase tracking-wide text-amber-300">
+                      beta
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -302,13 +350,10 @@ export default function SocialPage() {
       ]);
 
       if (integrations.status === "fulfilled") {
-        const socialNames = [
-          "twitter", "linkedin", "facebook", "instagram", "bluesky",
-          "tiktok", "youtube", "mastodon", "medium", "devto",
-          "reddit", "pinterest", "threads", "discord", "hashnode", "wordpress",
-        ];
         const connected = integrations.value
-          .filter((i) => i.status === "connected" && socialNames.includes(i.service))
+          .filter(
+            (i) => i.status === "connected" && SUPPORTED_PLATFORMS.includes(i.service)
+          )
           .map((i) => i.service);
         setConnectedPlatforms(connected);
       }
@@ -466,6 +511,42 @@ export default function SocialPage() {
             ))}
           </div>
         )}
+      </section>
+
+      {/* Coming Soon platforms */}
+      <section>
+        <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-foreground-muted">
+          <Plus className="h-4 w-4" />
+          Coming Soon
+        </h2>
+        <p className="mb-3 text-xs text-foreground-muted">
+          These platforms require deeper API approvals (Meta Business Verification,
+          ByteDance review, Google sensitive scopes). They&apos;ll arrive in a future
+          release.
+        </p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+          {TIER3_PLATFORMS.map((p) => {
+            const Icon = PLATFORM_ICON[p] || Globe;
+            const color = PLATFORM_COLOR[p] || "text-foreground-muted";
+            return (
+              <Card
+                key={p}
+                className="opacity-60 cursor-not-allowed"
+                aria-disabled
+              >
+                <CardContent className="flex flex-col items-center gap-2 py-4">
+                  <Icon className={`h-5 w-5 ${color}`} />
+                  <span className="text-xs font-medium text-foreground-secondary">
+                    {PLATFORM_LABEL[p] ?? p}
+                  </span>
+                  <span className="rounded bg-foreground-muted/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-foreground-muted">
+                    soon
+                  </span>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       </section>
     </div>
   );

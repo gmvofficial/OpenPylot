@@ -230,7 +230,11 @@ async fn get_gmail_access_token(
             .or_else(|| body.get("error").and_then(|v| v.as_str()))
             .unwrap_or("unknown error");
         tracing::error!("Gmail token refresh failed ({}): {}", status, err_desc);
-        anyhow::bail!("Failed to refresh Gmail token (HTTP {}): {}", status.as_u16(), err_desc);
+        anyhow::bail!(
+            "Failed to refresh Gmail token (HTTP {}): {}",
+            status.as_u16(),
+            err_desc
+        );
     }
 
     let new_access_token = body
@@ -479,7 +483,7 @@ impl Tool for GmailSendTool {
         ToolDefinition {
             name: "gmail_send".to_string(),
             description:
-                "Send an email. IMPORTANT: Always confirm with the user before using this tool."
+                "Send an email via Gmail. DO NOT call this tool until you have FIRST shown the full draft (To, Subject, Body) to the user in chat and received an EXPLICIT confirmation such as 'send', 'send it', or 'yes send'. If the user asks for any modification, show the updated draft in chat and ask for confirmation again — do not call this tool. Vague replies like 'ok' or 'thanks' are not confirmation."
                     .to_string(),
             parameters: json!({
                 "type": "object",
@@ -559,7 +563,10 @@ impl Tool for GmailSendTool {
                 to, id
             )))
         } else {
-            Ok(ToolResult::err(format!("Failed to send email: unexpected response: {}", result)))
+            Ok(ToolResult::err(format!(
+                "Failed to send email: unexpected response: {}",
+                result
+            )))
         }
     }
 }
@@ -580,7 +587,7 @@ impl Tool for GmailReplyTool {
         ToolDefinition {
             name: "gmail_reply".to_string(),
             description:
-                "Reply to an email. IMPORTANT: Always confirm with the user before using this tool."
+                "Reply to an email via Gmail. DO NOT call this tool until you have FIRST shown the full reply draft (body) to the user in chat and received an EXPLICIT confirmation such as 'send', 'send it', or 'yes send'. If the user asks for any modification, show the updated draft in chat and ask for confirmation again — do not call this tool. Vague replies like 'ok' or 'thanks' are not confirmation."
                     .to_string(),
             parameters: json!({
                 "type": "object",
@@ -695,7 +702,10 @@ impl Tool for GmailReplyTool {
                 id
             )))
         } else {
-            Ok(ToolResult::err(format!("Failed to send reply: unexpected response: {}", result)))
+            Ok(ToolResult::err(format!(
+                "Failed to send reply: unexpected response: {}",
+                result
+            )))
         }
     }
 }
@@ -715,7 +725,7 @@ impl Tool for GmailDraftCreateTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "gmail_draft_create".to_string(),
-            description: "Create an email draft".to_string(),
+            description: "Create an email draft and save it directly to the user's Gmail Drafts folder. Use this tool ONLY when the user explicitly asks to 'create a draft', 'save as draft', 'make a gmail draft', or similar. Do NOT use this tool when the user asks to 'send' an email — for sending, show the draft in chat first and use gmail_send after explicit confirmation. No in-chat preview/confirmation is required before calling this tool, because the user explicitly asked for a draft (nothing is sent).".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -794,7 +804,10 @@ impl Tool for GmailDraftCreateTool {
                 id
             )))
         } else {
-            Ok(ToolResult::err(format!("Failed to create draft: unexpected response: {}", result)))
+            Ok(ToolResult::err(format!(
+                "Failed to create draft: unexpected response: {}",
+                result
+            )))
         }
     }
 }
@@ -814,7 +827,7 @@ impl Tool for GmailDraftSendTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
             name: "gmail_draft_send".to_string(),
-            description: "Send a previously created draft. IMPORTANT: Always confirm with the user before using this tool.".to_string(),
+            description: "Send a previously created Gmail draft. DO NOT call this tool until you have FIRST shown the draft contents to the user in chat and received an EXPLICIT confirmation such as 'send', 'send it', or 'yes send'. If the user wants changes, update the draft and show it again — do not call this tool. Vague replies like 'ok' or 'thanks' are not confirmation.".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -867,7 +880,10 @@ impl Tool for GmailDraftSendTool {
                 id
             )))
         } else {
-            Ok(ToolResult::err(format!("Failed to send draft: unexpected response: {}", result)))
+            Ok(ToolResult::err(format!(
+                "Failed to send draft: unexpected response: {}",
+                result
+            )))
         }
     }
 }

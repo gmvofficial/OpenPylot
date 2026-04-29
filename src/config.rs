@@ -392,7 +392,9 @@ impl AppConfig {
         });
         let tg = toml_cfg.telegram.unwrap_or(TelegramToml { enabled: None });
         let wa = toml_cfg.whatsapp.unwrap_or(WhatsAppToml { enabled: None });
-        let sched = toml_cfg.scheduler.unwrap_or(SchedulerToml { enabled: None });
+        let sched = toml_cfg
+            .scheduler
+            .unwrap_or(SchedulerToml { enabled: None });
         let mem = toml_cfg.memory.unwrap_or(MemoryToml {
             enabled: None,
             db_name: None,
@@ -474,7 +476,9 @@ impl AppConfig {
             judge_votes: None,
             skill_evolution: None,
         });
-        let mkt = toml_cfg.marketing.unwrap_or(MarketingToml { enabled: None });
+        let mkt = toml_cfg
+            .marketing
+            .unwrap_or(MarketingToml { enabled: None });
 
         let social_twitter_enabled = social.twitter_enabled.unwrap_or(false)
             || secret_opt("TWITTER_API_KEY", &vault).is_some();
@@ -502,10 +506,10 @@ impl AppConfig {
             || secret_opt("DISCORD_BOT_TOKEN", &vault).is_some();
         let social_slack_enabled = social.slack_enabled.unwrap_or(false)
             || secret_opt("SLACK_BOT_TOKEN", &vault).is_some();
-        let social_medium_enabled = social.medium_enabled.unwrap_or(false)
-            || secret_opt("MEDIUM_TOKEN", &vault).is_some();
-        let social_devto_enabled = social.devto_enabled.unwrap_or(false)
-            || secret_opt("DEVTO_API_KEY", &vault).is_some();
+        let social_medium_enabled =
+            social.medium_enabled.unwrap_or(false) || secret_opt("MEDIUM_TOKEN", &vault).is_some();
+        let social_devto_enabled =
+            social.devto_enabled.unwrap_or(false) || secret_opt("DEVTO_API_KEY", &vault).is_some();
         let social_hashnode_enabled = social.hashnode_enabled.unwrap_or(false)
             || secret_opt("HASHNODE_API_KEY", &vault).is_some();
         let social_wordpress_enabled = social.wordpress_enabled.unwrap_or(false)
@@ -638,7 +642,9 @@ impl AppConfig {
 
             memory_enabled: mem.enabled.unwrap_or(false),
             memory_db_name: mem.db_name.unwrap_or_else(|| "smart_memory.db".into()),
-            memory_embedding_model: mem.embedding_model.unwrap_or_else(|| "text-embedding-3-small".into()),
+            memory_embedding_model: mem
+                .embedding_model
+                .unwrap_or_else(|| "text-embedding-3-small".into()),
             memory_auto_extract: mem.auto_extract.unwrap_or(true),
             memory_extraction_interval: mem.extraction_interval.unwrap_or(5),
             memory_similarity_threshold: mem.similarity_threshold.unwrap_or(0.35),

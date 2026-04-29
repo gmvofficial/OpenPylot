@@ -44,7 +44,26 @@ import {
   FileText,
 } from "lucide-react";
 
-const SERVICE_META: Record<string, { icon: React.ElementType; color: string; description: string; category?: string }> = {
+/**
+ * Release tier for a social-media integration.
+ *   1 = stable, available in v1
+ *   2 = beta — works but needs setup effort / paid API tier
+ *   3 = "coming soon" — provider exists but onboarding too painful for v1
+ *       (Meta business verification, ByteDance review, Google sensitive scopes)
+ */
+type ReleaseTier = 1 | 2 | 3;
+
+const SERVICE_META: Record<
+  string,
+  {
+    icon: React.ElementType;
+    color: string;
+    description: string;
+    category?: string;
+    tier?: ReleaseTier;
+    tierNote?: string;
+  }
+> = {
   // Productivity integrations
   google_calendar: {
     icon: Calendar,
@@ -63,12 +82,15 @@ const SERVICE_META: Record<string, { icon: React.ElementType; color: string; des
     color: "text-sky-400",
     description: "Interact with the agent via Telegram bot. Receive notifications and replies.",
     category: "messaging",
+    tier: 1,
   },
   whatsapp: {
     icon: MessageCircle,
     color: "text-accent-success",
     description: "Send and receive messages through WhatsApp Business API.",
     category: "messaging",
+    tier: 2,
+    tierNote: "Requires WhatsApp Business account + Meta Business Verification.",
   },
   github: {
     icon: Github,
@@ -81,6 +103,7 @@ const SERVICE_META: Record<string, { icon: React.ElementType; color: string; des
     color: "text-amber-400",
     description: "Connect to Slack workspaces for messages, channels, and team coordination.",
     category: "messaging",
+    tier: 1,
   },
   // Social media platforms
   twitter: {
@@ -88,96 +111,123 @@ const SERVICE_META: Record<string, { icon: React.ElementType; color: string; des
     color: "text-sky-400",
     description: "Post tweets, reply to threads, and track engagement on Twitter/X.",
     category: "social",
+    tier: 2,
+    tierNote: "Requires X API Basic plan ($100/mo) for write access.",
   },
   linkedin: {
     icon: Linkedin,
     color: "text-blue-500",
     description: "Publish professional posts, articles, and track business network engagement.",
     category: "social",
+    tier: 1,
   },
   facebook: {
     icon: Facebook,
     color: "text-accent",
     description: "Manage your Facebook Page posts, schedule content, and view insights.",
     category: "social",
+    tier: 2,
+    tierNote: "Paste a Page Access Token from Meta Graph API Explorer.",
   },
   instagram: {
     icon: Instagram,
     color: "text-pink-400",
     description: "Share photos, reels, and stories via the Instagram Graph API.",
     category: "social",
+    tier: 3,
+    tierNote: "Requires Meta Business Verification + Instagram Business account.",
   },
   bluesky: {
     icon: AtSign,
     color: "text-accent",
     description: "Post to Bluesky's decentralized social network using app passwords.",
     category: "social",
+    tier: 2,
+    tierNote: "New — uses an app password from Bluesky settings.",
   },
   tiktok: {
     icon: Video,
     color: "text-rose-400",
     description: "Publish short-form video content and track TikTok analytics.",
     category: "social",
+    tier: 3,
+    tierNote: "Requires ByteDance Content Posting API approval.",
   },
   youtube: {
     icon: Youtube,
     color: "text-red-500",
     description: "Upload videos, manage playlists, and track YouTube channel performance.",
     category: "social",
+    tier: 3,
+    tierNote: "Requires Google sensitive-scope review for youtube.upload.",
   },
   pinterest: {
     icon: ImageIcon,
     color: "text-accent-error",
     description: "Pin images and ideas to boards for visual discovery and sharing.",
     category: "social",
+    tier: 3,
+    tierNote: "Requires Pinterest app review for write scope.",
   },
   reddit: {
     icon: Hash,
     color: "text-accent-warning",
     description: "Post to subreddits, reply to threads, and track karma/engagement.",
     category: "social",
+    tier: 1,
   },
   threads: {
     icon: AtSign,
     color: "text-foreground-secondary",
     description: "Share short-form text posts on Meta's Threads platform.",
     category: "social",
+    tier: 3,
+    tierNote: "Threads API still in limited rollout via Meta.",
   },
   mastodon: {
     icon: Radio,
     color: "text-purple-400",
     description: "Post to your Mastodon instance's federated social network.",
     category: "social",
+    tier: 3,
+    tierNote: "Niche audience — deferred to a future release.",
   },
   discord: {
     icon: Hash,
     color: "text-indigo-400",
     description: "Send messages and updates to Discord channels via bot or webhook.",
     category: "messaging",
+    tier: 1,
   },
   medium: {
     icon: BookOpen,
     color: "text-emerald-400",
     description: "Publish long-form articles and stories on Medium.",
     category: "publishing",
+    tier: 3,
+    tierNote: "Medium deprecated their public posting API — new tokens cannot be issued.",
   },
   devto: {
     icon: FileText,
     color: "text-foreground-secondary",
     description: "Publish developer articles and tutorials on Dev.to.",
     category: "publishing",
+    tier: 1,
   },
   hashnode: {
     icon: Pen,
     color: "text-accent",
     description: "Publish developer blog posts on your Hashnode publication.",
     category: "publishing",
+    tier: 2,
+    tierNote: "Requires a personal access token + your Hashnode publication ID.",
   },
   wordpress: {
     icon: Share2,
     color: "text-cyan-400",
     description: "Create and manage blog posts on your WordPress site.",
     category: "publishing",
+    tier: 1,
   },
 };
 
@@ -357,13 +407,26 @@ function IntegrationCard({
   const Icon = meta.icon;
   const isConnected = integration.status === "connected";
   const isError = integration.status === "error";
+  const tier = meta.tier;
+  const isComingSoon = tier === 3 && !isConnected;
+  const isBeta = tier === 2;
 
   return (
-    <Card className="group relative overflow-hidden transition-all hover:border-border-hover">
+    <Card
+      className={`group relative overflow-hidden transition-all hover:border-border-hover ${
+        isComingSoon ? "opacity-70" : ""
+      }`}
+    >
       {/* status strip */}
       <div
         className={`absolute left-0 top-0 h-full w-1 ${
-          isConnected ? "bg-green-500" : isError ? "bg-red-500" : "bg-border"
+          isConnected
+            ? "bg-green-500"
+            : isError
+            ? "bg-red-500"
+            : isComingSoon
+            ? "bg-foreground-muted/30"
+            : "bg-border"
         }`}
       />
 
@@ -373,18 +436,49 @@ function IntegrationCard({
             <Icon className="h-5 w-5" />
           </div>
           <div>
-            <CardTitle className="text-base font-semibold capitalize">
-              {integration.service.replace(/_/g, " ")}
-            </CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base font-semibold capitalize">
+                {integration.service.replace(/_/g, " ")}
+              </CardTitle>
+              {isBeta && (
+                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-300">
+                  beta
+                </span>
+              )}
+              {isComingSoon && (
+                <span className="rounded bg-foreground-muted/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-foreground-muted">
+                  soon
+                </span>
+              )}
+            </div>
             <CardDescription className="mt-0.5 text-xs">
               {meta.description}
             </CardDescription>
+            {meta.tierNote && (
+              <p
+                className={`mt-1 text-[11px] ${
+                  isComingSoon ? "text-foreground-muted" : "text-amber-300/90"
+                }`}
+              >
+                ⚠ {meta.tierNote}
+              </p>
+            )}
           </div>
         </div>
-        <Badge variant={isConnected ? "success" : isError ? "destructive" : "secondary"}>
+        <Badge
+          variant={
+            isConnected
+              ? "success"
+              : isError
+              ? "destructive"
+              : isComingSoon
+              ? "outline"
+              : "secondary"
+          }
+        >
           {isConnected && <CheckCircle2 className="mr-1 h-3 w-3" />}
           {isError && <AlertCircle className="mr-1 h-3 w-3" />}
-          {integration.status}
+          {isComingSoon ? "coming soon" : integration.status}
         </Badge>
       </CardHeader>
 
@@ -395,7 +489,9 @@ function IntegrationCard({
               Connected {(integration.connected_at || integration.connectedAt) ? `since ${new Date((integration.connected_at || integration.connectedAt)!).toLocaleDateString()}` : ""}
             </p>
           ) : (
-            <p className="text-xs text-foreground-muted">Not yet connected</p>
+            <p className="text-xs text-foreground-muted">
+              {isComingSoon ? "Available in a future release" : "Not yet connected"}
+            </p>
           )}
 
           <div className="flex items-center gap-2">
@@ -415,10 +511,15 @@ function IntegrationCard({
                 </Button>
               </>
             )}
-            {!isConnected && (
+            {!isConnected && !isComingSoon && (
               <Button size="sm" onClick={() => onConnect(integration.service)}>
                 <ChevronRight className="mr-1 h-3.5 w-3.5" />
                 Connect
+              </Button>
+            )}
+            {isComingSoon && (
+              <Button size="sm" variant="outline" disabled>
+                Coming soon
               </Button>
             )}
           </div>
@@ -667,6 +768,14 @@ export default function SetupPage() {
     for (const i of list) {
       const cat = SERVICE_META[i.service]?.category || "other";
       (groups[cat] = groups[cat] || []).push(i);
+    }
+    // Inside each group, sort by release tier (1 → 2 → 3 → unset)
+    for (const key of Object.keys(groups)) {
+      groups[key].sort((a, b) => {
+        const ta = SERVICE_META[a.service]?.tier ?? 99;
+        const tb = SERVICE_META[b.service]?.tier ?? 99;
+        return ta - tb;
+      });
     }
     return groups;
   };
