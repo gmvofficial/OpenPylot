@@ -15,6 +15,81 @@ import { Separator } from "@/components/ui/separator";
 import type { AgentStatus, ScheduledJob, LogEntry, Skill, ToolDefinition, LearningRule } from "@/types";
 import { apiClient } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/utils";
+
+/** Convert a cron expression into a human-readable description. Falls back to the raw expression for exotic patterns. */
+function describeCron(expr: string): string {
+  const raw = expr.trim();
+  const parts = raw.split(/\s+/);
+  // Not a standard 5-part cron — return as-is (may already be human-readable)
+  if (parts.length !== 5) return raw;
+
+  const [min, hour, dom, month, dow] = parts;
+
+  const star = (v: string) => v === "*";
+  const everyN = (v: string) => /^\*\/(\d+)$/.exec(v);
+  const isNum = (v: string) => /^\d+$/.test(v);
+
+  // * * * * *  →  Every minute
+  if (star(min) && star(hour) && star(dom) && star(month) && star(dow)) {
+    return "Every minute";
+  }
+
+  // */N * * * *  →  Every N minutes
+  const minEvery = everyN(min);
+  if (minEvery && star(hour) && star(dom) && star(month) && star(dow)) {
+    const n = parseInt(minEvery[1]);
+    return n === 1 ? "Every minute" : `Every ${n} minutes`;
+  }
+
+  // 0 * * * *  →  Every hour
+  if (min === "0" && star(hour) && star(dom) && star(month) && star(dow)) {
+    return "Every hour";
+  }
+
+  // 0 */N * * *  →  Every N hours
+  const hourEvery = everyN(hour);
+  if (min === "0" && hourEvery && star(dom) && star(month) && star(dow)) {
+    const n = parseInt(hourEvery[1]);
+    return n === 1 ? "Every hour" : `Every ${n} hours`;
+  }
+
+  // Helper: format a single hour number as "HH:MM"
+  const fmt = (h: string, m: string) => {
+    const isMid = h === "0" && m === "0";
+    if (isMid) return "midnight";
+    return `${h.padStart(2, "0")}:${m.padStart(2, "0")}`;
+  };
+
+  // Comma-separated hours on the dot: 0 H,H,H * * *  →  Daily at HH:MM, HH:MM, HH:MM
+  if (isNum(min) && hour.includes(",") && star(dom) && star(month) && star(dow)) {
+    const times = hour.split(",").map((h) => fmt(h.trim(), min)).join(", ");
+    return `Daily at ${times}`;
+  }
+
+  // Fixed hour + fixed minute patterns
+  if (isNum(min) && isNum(hour)) {
+    const timeLabel = fmt(hour, min);
+
+    // Every day at HH:MM
+    if (star(dom) && star(month) && star(dow)) {
+      return hour === "0" && min === "0" ? "Daily at midnight" : `Daily at ${timeLabel}`;
+    }
+
+    // Day-of-week: 0 H * * D
+    if (star(dom) && star(month) && /^\d$/.test(dow)) {
+      const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      const dayName = days[parseInt(dow)] ?? `weekday ${dow}`;
+      return `Every ${dayName} at ${timeLabel}`;
+    }
+
+    // Day-of-month: 0 H d * *
+    if (isNum(dom) && star(month) && star(dow)) {
+      return `Monthly on day ${dom} at ${timeLabel}`;
+    }
+  }
+
+  return raw; // unknown pattern — show raw cron
+}
 import {
   Activity,
   Bot,
@@ -160,7 +235,7 @@ function JobsTable({
           {jobs.map((job) => (
             <tr key={job.id} className="hover:bg-background-secondary/30 transition-colors">
               <td className="px-4 py-3 font-medium text-foreground">{job.name}</td>
-              <td className="px-4 py-3 font-mono text-xs text-foreground-secondary">{job.schedule}</td>
+              <td className="px-4 py-3 text-sm text-foreground-secondary" title={job.schedule}>{describeCron(job.schedule)}</td>
               <td className="px-4 py-3 text-foreground-secondary">
                 {job.last_run ? formatRelativeTime(new Date(job.last_run)) : "Never"}
               </td>

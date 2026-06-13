@@ -17,7 +17,6 @@ import {
   Github,
   Slack,
   Globe,
-  ChevronRight,
   CheckCircle2,
   AlertCircle,
   Settings2,
@@ -42,6 +41,11 @@ import {
   Video,
   Image as ImageIcon,
   FileText,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  BookOpenCheck,
+  Plug,
 } from "lucide-react";
 
 /**
@@ -53,6 +57,17 @@ import {
  */
 type ReleaseTier = 1 | 2 | 3;
 
+interface SetupGuide {
+  /** Short summary, e.g. "Sign in with your Google account" */
+  summary: string;
+  /** Numbered steps the user must follow before / during connect */
+  steps: string[];
+  /** Optional link to provider docs */
+  docsUrl?: string;
+  /** Optional label for docsUrl button. Defaults to "Open provider docs". */
+  docsLabel?: string;
+}
+
 const SERVICE_META: Record<
   string,
   {
@@ -62,6 +77,7 @@ const SERVICE_META: Record<
     category?: string;
     tier?: ReleaseTier;
     tierNote?: string;
+    setupGuide?: SetupGuide;
   }
 > = {
   // Productivity integrations
@@ -70,12 +86,45 @@ const SERVICE_META: Record<
     color: "text-accent",
     description: "Manage events, check schedules, and get reminders for upcoming meetings.",
     category: "productivity",
+    tier: 1,
+    setupGuide: {
+      summary: "Create a Google Cloud OAuth client, paste its credentials, then approve access.",
+      steps: [
+        "Open Google Cloud Console → APIs & Services → Credentials.",
+        "Enable the Google Calendar API for your project.",
+        "Click Create credentials → OAuth client ID → Web application.",
+        "Add http://localhost:8085/callback as an Authorized redirect URI.",
+        "Copy the Client ID and Client Secret.",
+        "Click “Connect” here, paste the Client ID + Secret, and submit.",
+        "A Google sign-in tab opens — pick your account and approve calendar access.",
+        "Status updates to Connected automatically when the redirect returns.",
+      ],
+      docsUrl: "https://developers.google.com/calendar/api/quickstart/js",
+      docsLabel: "Google Calendar OAuth setup",
+    },
   },
   gmail: {
     icon: Mail,
     color: "text-accent-error",
     description: "Read, search, compose, and manage your emails directly through the agent.",
     category: "productivity",
+    tier: 1,
+    setupGuide: {
+      summary: "Create a Google Cloud OAuth client, paste its credentials, then approve Gmail access.",
+      steps: [
+        "Open Google Cloud Console → APIs & Services → Credentials.",
+        "Enable the Gmail API for your project.",
+        "Click Create credentials → OAuth client ID → Web application.",
+        "Add http://localhost:8085/callback as an Authorized redirect URI.",
+        "On the OAuth consent screen, add the gmail.readonly / gmail.send / gmail.modify scopes.",
+        "Copy the Client ID and Client Secret.",
+        "Click “Connect” here, paste the Client ID + Secret, and submit.",
+        "A Google sign-in tab opens — pick the Gmail account and approve the requested scopes.",
+        "Status updates to Connected automatically.",
+      ],
+      docsUrl: "https://developers.google.com/gmail/api/auth/scopes",
+      docsLabel: "Gmail API scopes",
+    },
   },
   telegram: {
     icon: Send,
@@ -83,13 +132,25 @@ const SERVICE_META: Record<
     description: "Interact with the agent via Telegram bot. Receive notifications and replies.",
     category: "messaging",
     tier: 1,
+    setupGuide: {
+      summary: "Create a Telegram bot with @BotFather and paste the token here.",
+      steps: [
+        "Open Telegram and start a chat with @BotFather.",
+        "Send /newbot, choose a display name and a unique username ending in ‘bot’.",
+        "BotFather replies with an HTTP API token (e.g. 123456:ABC…) — copy it.",
+        "(Optional) To receive proactive messages, send /start to your new bot, then visit https://api.telegram.org/bot<TOKEN>/getUpdates and copy the chat ‘id’.",
+        "Click “Connect” here, paste the bot token (and optional chat ID), and submit.",
+      ],
+      docsUrl: "https://core.telegram.org/bots/tutorial",
+      docsLabel: "Telegram bot tutorial",
+    },
   },
   whatsapp: {
     icon: MessageCircle,
     color: "text-accent-success",
     description: "Send and receive messages through WhatsApp Business API.",
     category: "messaging",
-    tier: 2,
+    tier: 3,
     tierNote: "Requires WhatsApp Business account + Meta Business Verification.",
   },
   github: {
@@ -97,6 +158,7 @@ const SERVICE_META: Record<
     color: "text-purple-400",
     description: "Monitor repositories, manage issues, review PRs and track notifications.",
     category: "developer",
+    tier: 3,
   },
   slack: {
     icon: Slack,
@@ -104,6 +166,20 @@ const SERVICE_META: Record<
     description: "Connect to Slack workspaces for messages, channels, and team coordination.",
     category: "messaging",
     tier: 1,
+    setupGuide: {
+      summary: "Create a Slack app, install it to your workspace, and paste its Bot User OAuth Token.",
+      steps: [
+        "Open https://api.slack.com/apps and click Create New App → From scratch.",
+        "Pick a name and choose the workspace to install into.",
+        "Open OAuth & Permissions and add bot scopes: chat:write, channels:read, channels:history, users:read.",
+        "Click Install to Workspace and approve the prompt.",
+        "Copy the Bot User OAuth Token (starts with xoxb-) shown after install.",
+        "Click “Connect” here, paste the token, and submit.",
+        "In Slack, invite the bot to a channel with /invite @<your-bot-name>.",
+      ],
+      docsUrl: "https://api.slack.com/quickstart",
+      docsLabel: "Slack app quickstart",
+    },
   },
   // Social media platforms
   twitter: {
@@ -111,8 +187,27 @@ const SERVICE_META: Record<
     color: "text-sky-400",
     description: "Post tweets, reply to threads, and track engagement on Twitter/X.",
     category: "social",
-    tier: 2,
-    tierNote: "Requires X API Basic plan ($100/mo) for write access.",
+    tier: 1,
+    setupGuide: {
+      summary: "Create an X developer app, set it to Read+Write, and paste 4 OAuth 1.0a keys (NOT the Bearer or OAuth 2.0 keys).",
+      steps: [
+        "Sign in at https://developer.x.com → open the Developer Portal → your Project → your App.",
+        "Open the Settings tab → User authentication settings → click Set up / Edit.",
+        "Set App permissions = Read and write (or Read, write, and DM). Type = Web App / OAuth 1.0a. Save.",
+        "Open the Keys and tokens tab. Under OAuth 1.0 Keys → Consumer Keys: click Show (or Regenerate) and copy:",
+        "    • Consumer Key  →  paste into pylot's API Key field",
+        "    • Consumer Secret  →  paste into pylot's API Secret field",
+        "On the same page, find Authentication Tokens → Access Token and Secret and click Regenerate.",
+        "    A dialog appears showing both values once — copy them immediately:",
+        "    • Access Token  →  paste into pylot's Access Token field",
+        "    • Access Token Secret  →  paste into pylot's Access Token Secret field",
+        "    NOTE: you MUST regenerate the Access Token AFTER setting Read+Write, otherwise posting returns 403.",
+        "Do NOT use the Bearer Token or the OAuth 2.0 Client ID/Secret — those are different auth types.",
+        "Click Connect here and paste all four values.",
+      ],
+      docsUrl: "https://developer.x.com/en/docs/authentication/oauth-1-0a",
+      docsLabel: "X OAuth 1.0a keys guide",
+    },
   },
   linkedin: {
     icon: Linkedin,
@@ -120,14 +215,41 @@ const SERVICE_META: Record<
     description: "Publish professional posts, articles, and track business network engagement.",
     category: "social",
     tier: 1,
+    setupGuide: {
+      summary: "Create a LinkedIn developer app, generate a member access token, and paste it here.",
+      steps: [
+        "Open https://www.linkedin.com/developers/apps and create a new app.",
+        "Under Products, request access to ‘Share on LinkedIn’ and ‘Sign In with LinkedIn using OpenID Connect’.",
+        "Open the Auth tab and use the OAuth 2.0 tools → Generate access token.",
+        "Select scopes w_member_social, openid, profile (all three are required so we can post AND auto-detect your profile URN).",
+        "Approve the prompt for your own LinkedIn account.",
+        "Copy the resulting access token (starts with AQV…).",
+        "Click “Connect” here, paste the access token, and submit. We’ll auto-detect your Person ID via /v2/userinfo.",
+        "If your token lacks the openid/profile scope, optionally paste your numeric Person ID into the Person ID field — find it by opening your LinkedIn profile while signed in and looking at the value after `/in/` (or use the Profile API).",
+      ],
+      docsUrl: "https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow",
+      docsLabel: "LinkedIn auth docs",
+    },
   },
   facebook: {
     icon: Facebook,
     color: "text-accent",
     description: "Manage your Facebook Page posts, schedule content, and view insights.",
     category: "social",
-    tier: 2,
-    tierNote: "Paste a Page Access Token from Meta Graph API Explorer.",
+    tier: 1,
+    setupGuide: {
+      summary: "Get a long-lived PAGE access token (not a User token) with publish permissions.",
+      steps: [
+        "Go to https://developers.facebook.com/tools/explorer and select your app.",
+        "Click 'Generate Access Token'. In the permissions list add ALL three: pages_show_list, pages_read_engagement, pages_manage_posts. Missing any one returns a #200 OAuthException.",
+        "CRITICAL: find the blue dropdown showing your app name, switch it to your PAGE name — the token becomes a Page Access Token. Do NOT use the User token from the previous step.",
+        "Copy the Page token, then go to https://developers.facebook.com/tools/debug/accesstoken and click 'Extend Access Token' to get a ~60-day token.",
+        "Your Page ID is the number shown beside your Page in the Explorer dropdown, or find it at facebook.com/YOUR_PAGE > About > Page transparency.",
+        "Paste both the Page ID and the extended Page Access Token here and click Connect.",
+      ],
+      docsUrl: "https://developers.facebook.com/docs/pages-api/getting-started",
+      docsLabel: "Facebook Pages API guide",
+    },
   },
   instagram: {
     icon: Instagram,
@@ -142,7 +264,7 @@ const SERVICE_META: Record<
     color: "text-accent",
     description: "Post to Bluesky's decentralized social network using app passwords.",
     category: "social",
-    tier: 2,
+    tier: 3,
     tierNote: "New — uses an app password from Bluesky settings.",
   },
   tiktok: {
@@ -174,7 +296,7 @@ const SERVICE_META: Record<
     color: "text-accent-warning",
     description: "Post to subreddits, reply to threads, and track karma/engagement.",
     category: "social",
-    tier: 1,
+    tier: 3,
   },
   threads: {
     icon: AtSign,
@@ -198,6 +320,20 @@ const SERVICE_META: Record<
     description: "Send messages and updates to Discord channels via bot or webhook.",
     category: "messaging",
     tier: 1,
+    setupGuide: {
+      summary: "Create a Discord bot, invite it to your server, and paste its bot token here.",
+      steps: [
+        "Open https://discord.com/developers/applications and click New Application.",
+        "Open the Bot tab → Reset Token → copy the bot token (you only see it once).",
+        "Under Privileged Gateway Intents, enable Message Content Intent if you want the bot to read messages.",
+        "Open OAuth2 → URL Generator: pick scope ‘bot’ and permissions Send Messages + Read Message History.",
+        "Open the generated URL and add the bot to your server.",
+        "(Optional) In Discord, enable Developer Mode then right-click a channel → Copy Channel ID.",
+        "Click “Connect” here, paste the bot token (and optional channel ID), and submit.",
+      ],
+      docsUrl: "https://discord.com/developers/docs/quick-start/getting-started",
+      docsLabel: "Discord bot quickstart",
+    },
   },
   medium: {
     icon: BookOpen,
@@ -212,14 +348,14 @@ const SERVICE_META: Record<
     color: "text-foreground-secondary",
     description: "Publish developer articles and tutorials on Dev.to.",
     category: "publishing",
-    tier: 1,
+    tier: 3,
   },
   hashnode: {
     icon: Pen,
     color: "text-accent",
     description: "Publish developer blog posts on your Hashnode publication.",
     category: "publishing",
-    tier: 2,
+    tier: 3,
     tierNote: "Requires a personal access token + your Hashnode publication ID.",
   },
   wordpress: {
@@ -227,7 +363,7 @@ const SERVICE_META: Record<
     color: "text-cyan-400",
     description: "Create and manage blog posts on your WordPress site.",
     category: "publishing",
-    tier: 1,
+    tier: 3,
   },
 };
 
@@ -261,6 +397,7 @@ function CredentialModal({
 
   const meta = SERVICE_META[service] ?? { icon: Globe, color: "text-foreground-secondary" };
   const Icon = meta.icon;
+  const guide = meta.setupGuide;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -272,8 +409,12 @@ function CredentialModal({
     .every((f) => values[f.name]?.trim());
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <Card className="w-full max-w-md mx-4 shadow-2xl border-border-hover">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm overflow-y-auto">
+      <Card
+        className={`my-8 w-full ${
+          guide ? "max-w-4xl" : "max-w-md"
+        } shadow-2xl border-border-hover`}
+      >
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <div className="flex items-center gap-3">
             <div className={`rounded-lg bg-background-secondary p-2.5 ${meta.color}`}>
@@ -284,7 +425,7 @@ function CredentialModal({
                 Connect {service.replace(/_/g, " ")}
               </CardTitle>
               <CardDescription className="text-xs mt-0.5">
-                Enter your credentials to connect
+                {guide?.summary ?? "Enter your credentials to connect"}
               </CardDescription>
             </div>
           </div>
@@ -293,47 +434,85 @@ function CredentialModal({
           </Button>
         </CardHeader>
         <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-4">
-            {fields.map((field) => (
-              <div key={field.name} className="space-y-1.5">
-                <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                  <Shield className="h-3.5 w-3.5 text-foreground-muted" />
-                  {field.label}
-                  {field.required && <span className="text-accent-error">*</span>}
-                </label>
-                <div className="relative">
-                  <Input
-                    type={field.field_type === "password" && !showPasswords[field.name] ? "password" : "text"}
-                    value={values[field.name] ?? ""}
-                    onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
-                    placeholder={field.placeholder}
-                    autoComplete="off"
-                  />
-                  {field.field_type === "password" && (
-                    <button
-                      type="button"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-foreground-muted hover:text-foreground"
-                      onClick={() => setShowPasswords({ ...showPasswords, [field.name]: !showPasswords[field.name] })}
-                    >
-                      {showPasswords[field.name] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  )}
+          <CardContent
+            className={`${
+              guide
+                ? "grid gap-6 md:grid-cols-[1.1fr_1fr]"
+                : "space-y-4"
+            }`}
+          >
+            {/* Setup guide panel (left on md+, top on small) */}
+            {guide && (
+              <div className="order-2 md:order-1 rounded-lg border border-border bg-background-secondary/40 p-4 text-xs">
+                <div className="mb-2 flex items-center gap-2 text-foreground">
+                  <BookOpenCheck className="h-4 w-4 text-accent" />
+                  <p className="font-semibold">Setup guide</p>
                 </div>
-              </div>
-            ))}
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button type="button" variant="ghost" onClick={onClose} disabled={loading}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={!allRequiredFilled || loading}>
-                {loading ? (
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                <p className="mb-3 text-foreground-secondary">{guide.summary}</p>
+                <ol className="ml-4 list-decimal space-y-1.5 text-foreground-secondary">
+                  {guide.steps.map((step, i) => (
+                    <li key={i} className="leading-relaxed">
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+                {guide.docsUrl && (
+                  <a
+                    href={guide.docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 inline-flex items-center gap-1 text-accent hover:underline"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    {guide.docsLabel || "Open provider docs"}
+                  </a>
                 )}
-                {loading ? "Connecting..." : "Connect"}
-              </Button>
+              </div>
+            )}
+
+            {/* Credential fields (right on md+) */}
+            <div className={`${guide ? "order-1 md:order-2 space-y-4" : "space-y-4"}`}>
+              {fields.map((field) => (
+                <div key={field.name} className="space-y-1.5">
+                  <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <Shield className="h-3.5 w-3.5 text-foreground-muted" />
+                    {field.label}
+                    {field.required && <span className="text-accent-error">*</span>}
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type={field.field_type === "password" && !showPasswords[field.name] ? "password" : "text"}
+                      value={values[field.name] ?? ""}
+                      onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
+                      placeholder={field.placeholder}
+                      autoComplete="off"
+                    />
+                    {field.field_type === "password" && (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-foreground-muted hover:text-foreground"
+                        onClick={() => setShowPasswords({ ...showPasswords, [field.name]: !showPasswords[field.name] })}
+                      >
+                        {showPasswords[field.name] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <Button type="button" variant="ghost" onClick={onClose} disabled={loading}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={!allRequiredFilled || loading}>
+                  {loading ? (
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                  )}
+                  {loading ? "Connecting..." : "Connect"}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </form>
@@ -410,6 +589,9 @@ function IntegrationCard({
   const tier = meta.tier;
   const isComingSoon = tier === 3 && !isConnected;
   const isBeta = tier === 2;
+  const guide = meta.setupGuide;
+  // Open the guide automatically on error so users see remediation steps.
+  const [guideOpen, setGuideOpen] = useState<boolean>(isError);
 
   return (
     <Card
@@ -483,18 +665,36 @@ function IntegrationCard({
       </CardHeader>
 
       <CardContent className="space-y-2 pl-5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           {isConnected ? (
-            <p className="text-xs text-foreground-muted">
+            <p className="min-w-0 flex-1 truncate text-xs text-foreground-muted">
               Connected {(integration.connected_at || integration.connectedAt) ? `since ${new Date((integration.connected_at || integration.connectedAt)!).toLocaleDateString()}` : ""}
             </p>
           ) : (
-            <p className="text-xs text-foreground-muted">
+            <p className="min-w-0 flex-1 truncate text-xs text-foreground-muted">
               {isComingSoon ? "Available in a future release" : "Not yet connected"}
             </p>
           )}
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
+            {guide && !isComingSoon && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setGuideOpen((v) => !v)}
+                aria-expanded={guideOpen}
+                aria-label={guideOpen ? "Hide setup guide" : "Show setup guide"}
+              >
+                <BookOpenCheck className="mr-1 h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Setup guide</span>
+                <span className="sm:hidden">Guide</span>
+                {guideOpen ? (
+                  <ChevronUp className="ml-1 h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                )}
+              </Button>
+            )}
             {isConnected && (
               <>
                 <Button size="sm" variant="ghost" onClick={() => onTest(integration.service)} disabled={testing}>
@@ -505,15 +705,26 @@ function IntegrationCard({
                   )}
                   Test
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => onDisconnect(integration.service)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => onDisconnect(integration.service)}
+                  className="whitespace-nowrap"
+                >
                   <Settings2 className="mr-1 h-3.5 w-3.5" />
                   Disconnect
                 </Button>
               </>
             )}
-            {!isConnected && !isComingSoon && (
+            {isError && (
+              <Button size="sm" variant="outline" onClick={() => onConnect(integration.service)}>
+                <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                Reconnect
+              </Button>
+            )}
+            {!isConnected && !isError && !isComingSoon && (
               <Button size="sm" onClick={() => onConnect(integration.service)}>
-                <ChevronRight className="mr-1 h-3.5 w-3.5" />
+                <Plug className="mr-1 h-3.5 w-3.5" />
                 Connect
               </Button>
             )}
@@ -524,6 +735,29 @@ function IntegrationCard({
             )}
           </div>
         </div>
+
+        {/* Setup guide panel */}
+        {guide && guideOpen && !isComingSoon && (
+          <div className="mt-2 rounded-lg border border-border bg-background-secondary/40 p-3 text-xs">
+            <p className="mb-2 font-medium text-foreground">{guide.summary}</p>
+            <ol className="ml-4 list-decimal space-y-1 text-foreground-secondary">
+              {guide.steps.map((step, i) => (
+                <li key={i}>{step}</li>
+              ))}
+            </ol>
+            {guide.docsUrl && (
+              <a
+                href={guide.docsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1 text-accent hover:underline"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                {guide.docsLabel || "Open provider docs"}
+              </a>
+            )}
+          </div>
+        )}
 
         {/* Test result display */}
         {testResult && (
@@ -826,17 +1060,18 @@ export default function SetupPage() {
             <CheckCircle2 className="h-4 w-4 text-accent-success" />
             Connected ({connected.length})
           </h2>
-          <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
+          <div className="sm:columns-1 lg:columns-2 lg:gap-4 [column-fill:_balance]">
             {connected.map((integration) => (
-              <IntegrationCard
-                key={integration.service}
-                integration={integration}
-                onConnect={handleConnect}
-                onDisconnect={handleDisconnect}
-                onTest={handleTest}
-                testResult={testResults[integration.service]}
-                testing={testingService === integration.service}
-              />
+              <div key={integration.service} className="break-inside-avoid mb-4">
+                <IntegrationCard
+                  integration={integration}
+                  onConnect={handleConnect}
+                  onDisconnect={handleDisconnect}
+                  onTest={handleTest}
+                  testResult={testResults[integration.service]}
+                  testing={testingService === integration.service}
+                />
+              </div>
             ))}
           </div>
         </section>
@@ -849,19 +1084,24 @@ export default function SetupPage() {
             <Zap className="h-4 w-4 text-amber-400" />
             {categoryLabels[category] || category} ({items.length})
           </h2>
-          <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
+          <div className="sm:columns-1 lg:columns-2 lg:gap-4 [column-fill:_balance]">
             {loading
-              ? Array.from({ length: 2 }).map((_, i) => <IntegrationSkeleton key={i} />)
+              ? Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="break-inside-avoid mb-4">
+                    <IntegrationSkeleton />
+                  </div>
+                ))
               : items.map((integration) => (
-                  <IntegrationCard
-                    key={integration.service}
-                    integration={integration}
-                    onConnect={handleConnect}
-                    onDisconnect={handleDisconnect}
-                    onTest={handleTest}
-                    testResult={testResults[integration.service]}
-                    testing={testingService === integration.service}
-                  />
+                  <div key={integration.service} className="break-inside-avoid mb-4">
+                    <IntegrationCard
+                      integration={integration}
+                      onConnect={handleConnect}
+                      onDisconnect={handleDisconnect}
+                      onTest={handleTest}
+                      testResult={testResults[integration.service]}
+                      testing={testingService === integration.service}
+                    />
+                  </div>
                 ))}
           </div>
         </section>

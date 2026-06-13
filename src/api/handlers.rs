@@ -105,6 +105,76 @@ pub fn credentials_missing(service: &str) -> (StatusCode, Json<ApiError>) {
     )
 }
 
+/// Turn a reqwest error into a user-friendly message that explains *why* a
+/// connection attempt failed, and offers concrete remediation steps when the
+/// failure is a local-network problem (VPN, firewall, IPv6 routing) rather
+/// than something the API itself rejected.
+pub fn describe_network_error(host: &str, e: &reqwest::Error) -> String {
+    use std::error::Error as _;
+    // Walk the source chain looking for a `std::io::Error`. Reqwest wraps
+    // hyper → hyper_util → io::Error for connection-level failures.
+    let mut src: Option<&(dyn std::error::Error + 'static)> = e.source();
+    let mut io_err: Option<&std::io::Error> = None;
+    while let Some(s) = src {
+        if let Some(io) = s.downcast_ref::<std::io::Error>() {
+            io_err = Some(io);
+            break;
+        }
+        src = s.source();
+    }
+
+    if e.is_timeout() {
+        return format!(
+            "Timed out reaching {host}. Check your internet connection, VPN, \
+             or firewall. The request didn't complete in time."
+        );
+    }
+
+    if let Some(io) = io_err {
+        use std::io::ErrorKind::*;
+        let kind = io.kind();
+        // ENETUNREACH on macOS = errno 51, EHOSTUNREACH = 65, ETIMEDOUT = 60
+        let raw = io.raw_os_error();
+        let is_unreachable =
+            matches!(kind, NetworkUnreachable | HostUnreachable) || matches!(raw, Some(51) | Some(65));
+        if is_unreachable {
+            return format!(
+                "Cannot reach {host} from this machine (OS reports network/host \
+                 unreachable). This is almost always a *local* networking issue — \
+                 not a problem with your token. Try one of these:\n\
+                 • Disable any VPN/proxy and retry.\n\
+                 • If on a corporate network, ask IT whether {host} is blocked.\n\
+                 • Test from a terminal: `curl -I https://{host}` should return \
+                 an HTTP status. If it also fails with \"Network is unreachable\", \
+                 it's a routing/firewall issue at the OS level.\n\
+                 • Toggle Wi-Fi off/on, or try a different network."
+            );
+        }
+        if matches!(kind, ConnectionRefused) {
+            return format!(
+                "{host} refused the connection. The endpoint may be down — try again \
+                 in a minute, or check status pages."
+            );
+        }
+        return format!(
+            "Network error reaching {host}: {} (raw os error: {:?}). Verify your \
+             internet connection and that {host} is reachable.",
+            io, raw
+        );
+    }
+
+    if e.is_connect() {
+        return format!(
+            "Could not establish a connection to {host}. Verify your internet \
+             connection, VPN settings, and that {host} is not blocked by a \
+             firewall. Underlying error: {}",
+            e
+        );
+    }
+
+    format!("Connection failed: {}", e)
+}
+
 /// Process-wide handle to the currently-running Google OAuth callback listener.
 ///
 /// `connect_integration` aborts whatever is in here before spawning a new task,
@@ -255,11 +325,14 @@ pub async fn list_conversations(
         .map(|c| ConversationSummary {
             id: c.id,
             title: c.title,
+            // Slice by chars, NOT bytes — `&s[..100]` panics if byte index 100
+            // falls inside a multi-byte codepoint (emoji 🚀, é, 你, …).
             last_message: c.messages.last().map(|m| {
-                if m.content.len() > 100 {
-                    format!("{}…", &m.content[..100])
+                let preview: String = m.content.chars().take(100).collect();
+                if m.content.chars().count() > 100 {
+                    format!("{}…", preview)
                 } else {
-                    m.content.clone()
+                    preview
                 }
             }),
             updated_at: c.updated_at,
@@ -743,6 +816,13 @@ fn connect_social_credentials(
                 format!("Save error: {e}"),
             )
         })?;
+
+        // Mark the platform as enabled in the TOML config so the agent
+        // registers the matching LLM tool (and the SocialManager wires up
+        // the provider) on the next start.
+        let enable_key = format!("social.{}_enabled", service);
+        update_toml_config(&[(enable_key.as_str(), "true")]);
+
         tracing::info!("{} integration connected via API", service);
 
         Ok(ok(ConnectResult {
@@ -1141,6 +1221,7 @@ pub async fn connect_integration(
                         format!("Save error: {e}"),
                     )
                 })?;
+                update_toml_config(&[("social.slack_enabled", "true")]);
                 tracing::info!("Slack integration connected via API");
 
                 Ok(ok(ConnectResult {
@@ -1195,7 +1276,121 @@ pub async fn connect_integration(
             ],
         ),
 
-        "linkedin" | "facebook" | "instagram" | "tiktok" | "youtube" | "reddit" | "pinterest"
+        "linkedin" => {
+            // Accept access_token (required) and an optional person_id. If
+            // person_id isn't provided, try to discover it from /v2/userinfo
+            // (works for tokens with the `openid`/`profile` scope).
+            let result = connect_social_credentials(
+                &service,
+                body.as_ref(),
+                &[
+                    (
+                        "access_token",
+                        "Access Token",
+                        "password",
+                        true,
+                        "your-linkedin-access-token",
+                    ),
+                    (
+                        "person_id",
+                        "Person ID (optional, auto-detected if blank)",
+                        "text",
+                        false,
+                        "abc123XYZ",
+                    ),
+                ],
+            )?;
+
+            // If we just stored credentials, validate any user-supplied
+            // person_id and (if missing or invalid) auto-detect it via
+            // /v2/userinfo so the LinkedIn post tool has everything it needs.
+            if !result.0.data.requires_credentials {
+                let vault_path = crate::secrets::default_secrets_path();
+                if let Ok(mut vault) = crate::secrets::SecretsVault::open(&vault_path, None) {
+                    // Reject manually-pasted vanity slugs (e.g. "rupak-chandra-41cg")
+                    // — LinkedIn's UGC API will reject `urn:li:person:<slug>`.
+                    let stored = vault.get("linkedin.person_id");
+                    let valid = stored
+                        .as_ref()
+                        .map(|s| {
+                            let t = s.trim();
+                            !t.is_empty()
+                                && t.len() <= 60
+                                && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                        })
+                        .unwrap_or(false);
+
+                    if !valid {
+                        if stored.is_some() {
+                            tracing::warn!(
+                                "User-supplied linkedin.person_id is not the \
+                                 alphanumeric LinkedIn member ID (looks like a \
+                                 vanity URL slug). Discarding and auto-detecting."
+                            );
+                            let _ = vault.delete("linkedin.person_id");
+                            let _ = vault.save();
+                        }
+
+                        if let Some(token) = vault.get("linkedin.access_token") {
+                            let token = token.trim().to_string();
+                            if let Ok(client) = reqwest::Client::builder()
+                                .timeout(std::time::Duration::from_secs(10))
+                                .user_agent("pylot/0.1 (+https://pylot.dev)")
+                                .build()
+                            {
+                                if let Ok(resp) = client
+                                    .get("https://api.linkedin.com/v2/userinfo")
+                                    .bearer_auth(&token)
+                                    .send()
+                                    .await
+                                {
+                                    if resp.status().is_success() {
+                                        if let Ok(json) = resp.json::<serde_json::Value>().await {
+                                            if let Some(sub) = json.get("sub").and_then(|v| v.as_str()) {
+                                                let _ = vault.set("linkedin.person_id", sub);
+                                                let _ = vault.save();
+                                                tracing::info!(
+                                                    "LinkedIn person_id auto-detected via /v2/userinfo"
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        // Try /v2/me as fallback (older r_liteprofile tokens)
+                                        if let Ok(resp2) = client
+                                            .get("https://api.linkedin.com/v2/me")
+                                            .bearer_auth(&token)
+                                            .header("X-Restli-Protocol-Version", "2.0.0")
+                                            .send()
+                                            .await
+                                        {
+                                            if resp2.status().is_success() {
+                                                if let Ok(json) = resp2.json::<serde_json::Value>().await {
+                                                    if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
+                                                        let _ = vault.set("linkedin.person_id", id);
+                                                        let _ = vault.save();
+                                                        tracing::info!(
+                                                            "LinkedIn person_id auto-detected via /v2/me"
+                                                        );
+                                                    }
+                                                }
+                                            } else {
+                                                tracing::warn!(
+                                                    "LinkedIn person_id auto-detection failed (token may lack profile scope). \
+                                                     User will need to supply person_id manually for posting."
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(result)
+        }
+        "instagram" | "tiktok" | "youtube" | "reddit" | "pinterest"
         | "threads" => connect_social_credentials(
             &service,
             body.as_ref(),
@@ -1206,6 +1401,27 @@ pub async fn connect_integration(
                 true,
                 "your-access-token",
             )],
+        ),
+
+        "facebook" => connect_social_credentials(
+            &service,
+            body.as_ref(),
+            &[
+                (
+                    "page_id",
+                    "Page ID",
+                    "text",
+                    true,
+                    "1234567890",
+                ),
+                (
+                    "access_token",
+                    "Page Access Token",
+                    "password",
+                    true,
+                    "EAAG...",
+                ),
+            ],
         ),
 
         "bluesky" => connect_social_credentials(
@@ -1477,12 +1693,38 @@ pub async fn disconnect_integration(
         }
         "slack" => {
             let _ = vault.delete("slack.bot_token");
+            let _ = vault.delete("slack.channel");
             vault.save().map_err(|e| {
                 err(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Save error: {e}"),
                 )
             })?;
+            update_toml_config(&[("social.slack_enabled", "false")]);
+        }
+        // Generic disconnect for social/publishing platforms: clear every
+        // vault key that begins with `<service>.` and flip the matching
+        // `social.<service>_enabled` flag in the TOML config back to false.
+        "twitter" | "linkedin" | "facebook" | "instagram" | "discord" | "bluesky"
+        | "mastodon" | "tiktok" | "youtube" | "reddit" | "pinterest" | "threads"
+        | "medium" | "devto" | "hashnode" | "wordpress" => {
+            let prefix = format!("{}.", service);
+            let keys: Vec<String> = vault
+                .flatten_for_test()
+                .into_keys()
+                .filter(|k| k.starts_with(&prefix))
+                .collect();
+            for k in &keys {
+                let _ = vault.delete(k);
+            }
+            vault.save().map_err(|e| {
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Save error: {e}"),
+                )
+            })?;
+            let enable_key = format!("social.{}_enabled", service);
+            update_toml_config(&[(enable_key.as_str(), "false")]);
         }
         _ => {
             return Err(err(
@@ -1701,14 +1943,288 @@ pub async fn test_integration(
             }
         }
 
-        _ => Err(err(
-            StatusCode::BAD_REQUEST,
-            format!("Unknown service: {}", service),
-        )),
+        "linkedin" => {
+            if let Some(raw) = vault.get("linkedin.access_token") {
+                // Tokens pasted from the LinkedIn UI sometimes pick up surrounding
+                // whitespace or quotes, which silently breaks the Authorization header.
+                let token = raw.trim().trim_matches('"').to_string();
+                if token.is_empty() {
+                    return Ok(ok(TestResult {
+                        healthy: false,
+                        details: "Stored access token is empty after trimming".into(),
+                    }));
+                }
+
+                let client = match reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(15))
+                    .user_agent("pylot/0.1 (+https://pylot.dev)")
+                    .build()
+                {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return Ok(ok(TestResult {
+                            healthy: false,
+                            details: format!("HTTP client init failed: {}", e),
+                        }));
+                    }
+                };
+
+                // Try the OpenID Connect userinfo endpoint first (works for tokens
+                // minted with the `openid`/`profile` scopes).
+                let userinfo = client
+                    .get("https://api.linkedin.com/v2/userinfo")
+                    .header("Authorization", format!("Bearer {}", token))
+                    .send()
+                    .await;
+
+                match userinfo {
+                    Ok(resp) if resp.status().is_success() => {
+                        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                        let name = body
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .or_else(|| body.get("sub").and_then(|v| v.as_str()))
+                            .unwrap_or("unknown");
+                        return Ok(ok(TestResult {
+                            healthy: true,
+                            details: format!("Authenticated as {}", name),
+                        }));
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        // 401 means the token itself is invalid/expired.
+                        // 403 means the token is valid but doesn't have profile-read
+                        // scope (`openid` / `r_liteprofile`). Many tokens are minted
+                        // with only `w_member_social`, which is enough for posting
+                        // but cannot read /userinfo or /me. Try /me as a secondary
+                        // probe and, if that also 403s, report the token as healthy
+                        // with a warning rather than failing the integration.
+                        if status == reqwest::StatusCode::UNAUTHORIZED {
+                            let text = resp.text().await.unwrap_or_default();
+                            return Ok(ok(TestResult {
+                                healthy: false,
+                                details: format!(
+                                    "LinkedIn rejected the token as invalid/expired \
+                                     (HTTP 401). Generate a new access token. {}",
+                                    text
+                                ),
+                            }));
+                        }
+                        if status == reqwest::StatusCode::FORBIDDEN {
+                            let me = client
+                                .get("https://api.linkedin.com/v2/me")
+                                .header("Authorization", format!("Bearer {}", token))
+                                .header("X-Restli-Protocol-Version", "2.0.0")
+                                .send()
+                                .await;
+                            return Ok(ok(match me {
+                                Ok(r) if r.status().is_success() => TestResult {
+                                    healthy: true,
+                                    details: "Token valid (r_liteprofile scope). \
+                                              Add `w_member_social` if posting fails."
+                                        .into(),
+                                },
+                                Ok(r) if r.status() == reqwest::StatusCode::FORBIDDEN => {
+                                    // Both /userinfo and /me forbidden — token most
+                                    // likely has only `w_member_social` (posting).
+                                    // We cannot cheaply verify post scope without
+                                    // actually creating a draft, so report as
+                                    // healthy-with-warning.
+                                    TestResult {
+                                        healthy: true,
+                                        details: "Token stored. LinkedIn does not \
+                                                  allow scope introspection — if \
+                                                  posting fails, regenerate the \
+                                                  token with `w_member_social` and \
+                                                  `openid`/`profile` scopes."
+                                            .into(),
+                                    }
+                                }
+                                Ok(r) => {
+                                    let s = r.status();
+                                    let t = r.text().await.unwrap_or_default();
+                                    TestResult {
+                                        healthy: false,
+                                        details: format!(
+                                            "LinkedIn rejected token (HTTP {}): {}",
+                                            s, t
+                                        ),
+                                    }
+                                }
+                                Err(e) => TestResult {
+                                    healthy: false,
+                                    details: describe_network_error("api.linkedin.com", &e),
+                                },
+                            }));
+                        }
+                        let text = resp.text().await.unwrap_or_default();
+                        Ok(ok(TestResult {
+                            healthy: false,
+                            details: format!("LinkedIn API returned HTTP {}: {}", status, text),
+                        }))
+                    }
+                    Err(e) => Ok(ok(TestResult {
+                        healthy: false,
+                        details: describe_network_error("api.linkedin.com", &e),
+                    })),
+                }
+            } else {
+                Ok(ok(TestResult {
+                    healthy: false,
+                    details: "No access token configured".into(),
+                }))
+            }
+        }
+
+        "twitter" => {
+            // OAuth 1.0a signing is non-trivial; do a lightweight credential
+            // presence check instead of a live API call.
+            let has_all = ["api_key", "api_secret", "access_token", "access_token_secret"]
+                .iter()
+                .all(|k| {
+                    vault
+                        .get(&format!("twitter.{}", k))
+                        .map(|v| !v.is_empty())
+                        .unwrap_or(false)
+                });
+            if has_all {
+                Ok(ok(TestResult {
+                    healthy: true,
+                    details: "All 4 OAuth 1.0a keys are stored. Live API check happens on first post.".into(),
+                }))
+            } else {
+                Ok(ok(TestResult {
+                    healthy: false,
+                    details: "Missing one or more of: api_key, api_secret, access_token, access_token_secret".into(),
+                }))
+            }
+        }
+
+        "facebook" => {
+            let token = vault.get("facebook.access_token");
+            let page_id = vault.get("facebook.page_id");
+            match (token, page_id) {
+                (Some(token), Some(page_id)) => {
+                    let url = format!("https://graph.facebook.com/v22.0/{}", page_id);
+                    let client = reqwest::Client::new();
+                    match client
+                        .get(&url)
+                        .query(&[("fields", "name"), ("access_token", token.as_str())])
+                        .send()
+                        .await
+                    {
+                        Ok(resp) if resp.status().is_success() => {
+                            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                            let name = body
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown");
+                            Ok(ok(TestResult {
+                                healthy: true,
+                                details: format!("Connected to Page \"{}\"", name),
+                            }))
+                        }
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let text = resp.text().await.unwrap_or_default();
+                            Ok(ok(TestResult {
+                                healthy: false,
+                                details: format!("Facebook Graph API HTTP {}: {}", status, text),
+                            }))
+                        }
+                        Err(e) => Ok(ok(TestResult {
+                            healthy: false,
+                            details: format!("Connection failed: {}", e),
+                        })),
+                    }
+                }
+                _ => Ok(ok(TestResult {
+                    healthy: false,
+                    details: "Missing page_id or access_token".into(),
+                })),
+            }
+        }
+
+        "discord" => {
+            if let Some(token) = vault.get("discord.bot_token") {
+                let client = reqwest::Client::new();
+                match client
+                    .get("https://discord.com/api/v10/users/@me")
+                    .header("Authorization", format!("Bot {}", token))
+                    .send()
+                    .await
+                {
+                    Ok(resp) if resp.status().is_success() => {
+                        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                        let name = body
+                            .get("username")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        Ok(ok(TestResult {
+                            healthy: true,
+                            details: format!("Connected as {}#{}",
+                                name,
+                                body.get("discriminator").and_then(|v| v.as_str()).unwrap_or("0000")),
+                        }))
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let text = resp.text().await.unwrap_or_default();
+                        Ok(ok(TestResult {
+                            healthy: false,
+                            details: format!("Discord API HTTP {}: {}", status, text),
+                        }))
+                    }
+                    Err(e) => Ok(ok(TestResult {
+                        healthy: false,
+                        details: format!("Connection failed: {}", e),
+                    })),
+                }
+            } else {
+                Ok(ok(TestResult {
+                    healthy: false,
+                    details: "No bot token configured".into(),
+                }))
+            }
+        }
+
+        // Generic fallback for every other service that uses
+        // `connect_social_credentials`. We don't ship live API checks for these
+        // yet (each provider needs bespoke auth), but we can at least confirm
+        // that credentials were stored so the UI doesn't blow up with
+        // "Unknown service".
+        other => {
+            let prefix = format!("{}.", other);
+            let stored: Vec<String> = {
+                let flat = vault.flatten_for_test();
+                flat.iter()
+                    .filter_map(|(k, v)| {
+                        if k.starts_with(&prefix) && !v.is_empty() {
+                            Some(k.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            };
+            if stored.is_empty() {
+                Ok(ok(TestResult {
+                    healthy: false,
+                    details: format!("No credentials stored for {}", other),
+                }))
+            } else {
+                Ok(ok(TestResult {
+                    healthy: true,
+                    details: format!(
+                        "Stored {} credential(s) for {}. Live API check happens on first use.",
+                        stored.len(),
+                        other
+                    ),
+                }))
+            }
+        }
     }
 }
-
-// ── Settings ─────────────────────────────────────────────────────────
 
 #[derive(Serialize, Deserialize)]
 pub struct AgentSettings {
@@ -3559,6 +4075,9 @@ pub struct CreatePostRequest {
     pub content: String,
     pub hashtags: Option<Vec<String>>,
     pub campaign_id: Option<String>,
+    pub content_type: Option<String>,
+    pub media_urls: Option<Vec<String>>,
+    pub title: Option<String>,
 }
 
 pub async fn create_social_post(
@@ -3575,18 +4094,178 @@ pub async fn create_social_post(
                 )
             }
         };
-        let post_id = manager.create_post(
+        // Strip markdown at create time so the stored draft, the post-card
+        // preview, and what eventually ships to the platform are all the same
+        // plain-text string. Otherwise users see `**bold**` in the UI even
+        // after a successful publish (the publish path strips on the way out
+        // but never updates the stored copy).
+        let cleaned = crate::social::strip_markdown(&body.content);
+
+        let mut content_type = body
+            .content_type
+            .as_deref()
+            .map(crate::social::ContentType::from_str)
+            .unwrap_or(crate::social::ContentType::Text);
+        let media_urls = body.media_urls.clone().unwrap_or_default();
+
+        if matches!(content_type, crate::social::ContentType::Text) && !media_urls.is_empty() {
+            let looks_like_pdf = media_urls
+                .iter()
+                .any(|u| u.to_lowercase().split('?').next().unwrap_or("").ends_with(".pdf"));
+            content_type = if looks_like_pdf {
+                crate::social::ContentType::Document
+            } else {
+                crate::social::ContentType::Image
+            };
+        }
+
+        tracing::info!(
+            content_type = %content_type.as_str(),
+            media_urls_count = media_urls.len(),
+            "create_social_post: dispatching"
+        );
+
+        let post_id = manager.create_post_with_media(
             platform,
-            &body.content,
+            &cleaned,
             body.hashtags.unwrap_or_default(),
             body.campaign_id,
+            content_type,
+            body.title.clone(),
+            media_urls,
         );
         ok(serde_json::json!({
             "id": post_id,
             "platform": body.platform,
-            "content": body.content,
+            "content": cleaned,
             "status": "draft"
         }))
+    } else {
+        ok(serde_json::json!({"error": "Social media manager not enabled"}))
+    }
+}
+
+
+/// Upload a media file (image or PDF) for use in a social post.
+///
+/// Returns a URL the publish flow can fetch from. The file is stored under
+/// `<data_dir>/uploads/` and served from `/uploads/<filename>`. This works
+/// because LinkedIn's publish path runs inside the same backend process —
+/// our `upload_media_from_url` fetches the URL, then PUTs the bytes to
+/// LinkedIn's signed upload endpoint, so localhost URLs work fine.
+pub async fn upload_social_media(
+    State(state): State<ApiState>,
+    mut multipart: Multipart,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiError>)> {
+    use std::io::Write;
+
+    let uploads_dir = state.config.data_dir.join("uploads");
+    if let Err(e) = std::fs::create_dir_all(&uploads_dir) {
+        tracing::error!("Failed to create uploads dir: {e}");
+        return Err(err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create uploads dir: {e}"),
+        ));
+    }
+
+    let mut file_bytes: Option<Vec<u8>> = None;
+    let mut original_name: Option<String> = None;
+    let mut content_type: Option<String> = None;
+
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        err(
+            StatusCode::BAD_REQUEST,
+            format!("Failed to read multipart field: {e}"),
+        )
+    })? {
+        if field.name() == Some("file") {
+            original_name = field.file_name().map(|s| s.to_string());
+            content_type = field.content_type().map(|s| s.to_string());
+            let bytes = field.bytes().await.map_err(|e| {
+                err(
+                    StatusCode::BAD_REQUEST,
+                    format!("Failed to read file data: {e}"),
+                )
+            })?;
+            file_bytes = Some(bytes.to_vec());
+        }
+    }
+
+    let bytes = file_bytes.ok_or_else(|| {
+        err(StatusCode::BAD_REQUEST, "No `file` field in upload".to_string())
+    })?;
+    let original = original_name.unwrap_or_else(|| "upload.bin".to_string());
+
+    let extension = std::path::Path::new(&original)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    let allowed = matches!(
+        extension.as_str(),
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "pdf"
+    );
+    if !allowed {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            format!("Unsupported file type '.{extension}'. Allowed: jpg, jpeg, png, gif, webp, pdf"),
+        ));
+    }
+
+    if bytes.len() > 25 * 1024 * 1024 {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            format!("File too large ({} bytes). Max 25 MB.", bytes.len()),
+        ));
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let filename = format!("{id}.{extension}");
+    let dest = uploads_dir.join(&filename);
+
+    let mut file = match std::fs::File::create(&dest) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!(path = %dest.display(), error = %e, "failed to create upload file");
+            return Err(err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create upload file: {e}"),
+            ));
+        }
+    };
+    if let Err(e) = file.write_all(&bytes) {
+        tracing::error!(path = %dest.display(), error = %e, "failed to write upload file");
+        return Err(err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to write upload file: {e}"),
+        ));
+    }
+
+    let host = std::env::var("PYLOT_PUBLIC_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
+    let url = format!("{host}/uploads/{filename}");
+
+    Ok(ok(serde_json::json!({
+        "url": url,
+        "filename": filename,
+        "original_name": original,
+        "content_type": content_type,
+        "size_bytes": bytes.len(),
+    })))
+}
+
+
+pub async fn delete_social_post(
+    State(state): State<ApiState>,
+    Path(id): Path<String>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    if let Some(ref sm) = state.social_manager {
+        let mut manager = sm.lock().await;
+        if manager.delete_post(&id) {
+            ok(serde_json::json!({"id": id, "deleted": true}))
+        } else {
+            ok(serde_json::json!({"error": "Post not found"}))
+        }
     } else {
         ok(serde_json::json!({"error": "Social media manager not enabled"}))
     }
@@ -3608,6 +4287,70 @@ pub async fn publish_social_post(
         }
     } else {
         ok(serde_json::json!({"error": "Social media manager not enabled"}))
+    }
+}
+
+// ── POST /api/social/improve-post ────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ImprovePostRequest {
+    pub content: String,
+    /// Target platform e.g. "linkedin", "twitter". Defaults to "linkedin".
+    pub platform: Option<String>,
+}
+
+pub async fn improve_social_post(
+    State(state): State<ApiState>,
+    Json(body): Json<ImprovePostRequest>,
+) -> Json<ApiResponse<serde_json::Value>> {
+    let draft = body.content.trim();
+    if draft.is_empty() {
+        return ok(serde_json::json!({ "error": "Cannot improve empty content." }));
+    }
+
+    let platform = body.platform.as_deref().unwrap_or("linkedin");
+    let (audience, char_limit) = match platform {
+        "twitter"  => ("X (Twitter)", 280usize),
+        "threads"  => ("Threads", 500),
+        "bluesky"  => ("Bluesky", 300),
+        "facebook" => ("Facebook", 5000),
+        "reddit"   => ("Reddit", 10000),
+        _          => ("LinkedIn", 3000),
+    };
+
+    let system_prompt = format!(
+        "You are a {audience} post editor. The user will give you a draft post.          Your job:
+         1. Fix grammar, spelling, and punctuation.
+         2. Improve structure and readability for the {audience} audience.
+         3. Suggest what to add or remove to make the post more engaging.
+         4. Keep it under {char_limit} characters.
+
+         IMPORTANT OUTPUT RULES:
+         - Return ONLY the improved post text. Nothing else.
+         - No markdown formatting (no **bold**, *italic*, ## headings,            backticks, or bullet asterisks). {audience} renders plain text.
+         - No commentary, no explanation, no preamble. Just the post itself.
+         - Preserve hashtags (#example) and mentions (@example)."
+    );
+
+    use crate::llm::{Message, LlmResponse};
+    let messages = vec![
+        Message::system(system_prompt),
+        Message::user(format!("Draft to improve:\n\n{draft}")),
+    ];
+
+    match state.llm.chat(&messages, &[]).await {
+        Ok(LlmResponse::Text(text)) | Ok(LlmResponse::TextWithThinking { text, .. }) => {
+            let cleaned = crate::social::strip_markdown(&text);
+            ok(serde_json::json!({
+                "improved": cleaned,
+                "original_length": draft.chars().count(),
+                "improved_length": cleaned.chars().count(),
+            }))
+        }
+        Ok(LlmResponse::ToolCalls(_)) => ok(serde_json::json!({
+            "error": "LLM tried to call a tool — improver should be tool-free."
+        })),
+        Err(e) => ok(serde_json::json!({ "error": format!("LLM error: {e}") })),
     }
 }
 
@@ -3692,7 +4435,6 @@ pub async fn disconnect_social_platform(
         "status": "disconnected"
     }))
 }
-
 // ── Sub-Agent API ────────────────────────────────────────────────────
 
 pub async fn list_sub_agents(
@@ -3727,21 +4469,77 @@ pub struct SpawnAgentRequest {
     pub name: String,
     pub task: String,
     pub model: Option<String>,
+    /// If set, the agent runs recurrently every `interval_secs` seconds.
+    /// If absent or 0, the agent runs exactly once.
+    pub interval_secs: Option<u64>,
 }
 
 pub async fn spawn_sub_agent(
     State(state): State<ApiState>,
     Json(body): Json<SpawnAgentRequest>,
 ) -> Json<ApiResponse<serde_json::Value>> {
+    tracing::info!(
+        "HTTP spawn_sub_agent: name={:?}, task_len={}, interval_secs={:?}",
+        body.name,
+        body.task.len(),
+        body.interval_secs
+    );
     if let Some(ref orch) = state.orchestrator {
         let config = crate::sub_agents::types::SubAgentConfig {
             name: body.name.clone(),
+            model_override: body.model.clone(),
+            interval_secs: body.interval_secs.filter(|&v| v > 0),
             ..Default::default()
         };
         let llm = Arc::clone(&state.llm);
-        let tools = crate::tools::build_sub_agent_tools(state.config.data_dir.clone());
-        let skills = crate::skills::SkillRegistry::load_all(None);
         let data_dir = state.config.data_dir.clone();
+
+        // ── Recurring agent ──────────────────────────────────────────
+        if let Some(interval) = body.interval_secs.filter(|&v| v > 0) {
+            tracing::info!(
+                "HTTP spawn_sub_agent: routing to spawn_recurring with interval={}s",
+                interval
+            );
+            let data_dir2 = data_dir.clone();
+            // When spawned from the Sub-Agents page there is no originating
+            // chat conversation. Fall back to the *most recent* conversation
+            // so each iteration still posts a visible "Run #N completed"
+            // message into the chat.
+            let fallback_conv_id = state
+                .conversations
+                .list()
+                .into_iter()
+                .next()
+                .map(|c| c.id);
+            let result = orch
+                .spawn_recurring(
+                    config,
+                    body.task.clone(),
+                    llm,
+                    move || {
+                        let tools = crate::tools::build_sub_agent_tools(data_dir2.clone());
+                        let skills = crate::skills::SkillRegistry::load_all(None);
+                        (tools, skills)
+                    },
+                    data_dir,
+                    fallback_conv_id,
+                    interval,
+                )
+                .await;
+            return match result {
+                Ok(id) => ok(serde_json::json!({
+                    "id": id,
+                    "name": body.name,
+                    "status": "Running",
+                    "interval_secs": interval,
+                })),
+                Err(e) => ok(serde_json::json!({"error": e.to_string()})),
+            };
+        }
+
+        // ── One-shot agent ───────────────────────────────────────────
+        let tools = crate::tools::build_sub_agent_tools(data_dir.clone());
+        let skills = crate::skills::SkillRegistry::load_all(None);
 
         match orch
             .spawn(

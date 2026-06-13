@@ -47,10 +47,10 @@ chunk_overlap = 50
 
 # --- Social Media ---
 [social]
-twitter_enabled = false
-linkedin_enabled = false
+twitter_enabled = true
+linkedin_enabled = true
 bluesky_enabled = false
-facebook_enabled = false
+facebook_enabled = true
 instagram_enabled = false
 tiktok_enabled = false
 youtube_enabled = false

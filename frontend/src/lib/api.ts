@@ -484,7 +484,14 @@ class ApiClient {
   // ── Social Media ────────────────────────────────────────────────
 
   async getSocialPosts(): Promise<SocialPost[]> {
-    return this.request("/api/social/posts");
+    const result = await this.request<{ posts: SocialPost[]; count: number } | SocialPost[]>(
+      "/api/social/posts"
+    );
+    // Backend returns { posts: [...], count: N } wrapped in data envelope.
+    if (result && !Array.isArray(result) && "posts" in result) {
+      return result.posts;
+    }
+    return Array.isArray(result) ? result : [];
   }
 
   async createSocialPost(post: {
@@ -492,11 +499,42 @@ class ApiClient {
     content: string;
     hashtags?: string[];
     campaign_id?: string;
+    /** "text" (default), "image", or "document" (PDF carousel on LinkedIn) */
+    content_type?: "text" | "image" | "document";
+    /** Public URLs to attach. For LinkedIn: 1+ images or exactly 1 PDF. */
+    media_urls?: string[];
+    /** Required for document/PDF posts — shown as the carousel title. */
+    title?: string;
   }): Promise<SocialPost> {
     return this.request("/api/social/posts", {
       method: "POST",
       body: JSON.stringify(post),
     });
+  }
+
+  /** Upload an image or PDF and get back a URL the publish flow can attach. */
+  async uploadSocialMedia(file: File): Promise<{
+    url?: string;
+    filename?: string;
+    original_name?: string;
+    content_type?: string;
+    size_bytes?: number;
+    error?: string;
+  }> {
+    const fd = new FormData();
+    fd.append("file", file);
+    // Don't go through this.request() — that one stringifies JSON. We need
+    // the browser to set the multipart boundary itself.
+    const res = await fetch(`${this.baseUrl}/api/social/upload`, {
+      method: "POST",
+      body: fd,
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { error: json?.error || `Upload failed: ${res.status}` };
+    }
+    // Backend wraps payload in { data: ... }
+    return json?.data ?? json;
   }
 
   async getSocialCampaigns(): Promise<SocialCampaign[]> {
@@ -548,7 +586,7 @@ class ApiClient {
     return this.request("/api/agents");
   }
 
-  async spawnSubAgent(params: { name: string; task: string; model?: string }) {
+  async spawnSubAgent(params: { name: string; task: string; model?: string; interval_secs?: number }) {
     return this.request("/api/agents", {
       method: "POST",
       body: JSON.stringify(params),
@@ -620,7 +658,37 @@ class ApiClient {
   }
 
   async publishSocialPost(id: string) {
-    return this.request(`/api/social/posts/${id}/publish`, { method: "POST" });
+    return this.request<{
+      id?: string;
+      platform_post_id?: string;
+      post_url?: string | null;
+      status?: string;
+      error?: string;
+    }>(`/api/social/posts/${id}/publish`, { method: "POST" });
+  }
+
+  async deleteSocialPost(id: string) {
+    return this.request<{ id?: string; deleted?: boolean; error?: string }>(
+      `/api/social/posts/${id}`,
+      { method: "DELETE" }
+    );
+  }
+
+  /**
+   * One-shot LLM call that rewrites a draft for a given platform.
+   * Returns `{ improved }` on success or `{ error }` on failure.
+   * Bypasses the agent — no tool execution, no chat history.
+   */
+  async improveSocialPost(content: string, platform = "linkedin") {
+    return this.request<{
+      improved?: string;
+      original_length?: number;
+      improved_length?: number;
+      error?: string;
+    }>("/api/social/improve-post", {
+      method: "POST",
+      body: JSON.stringify({ content, platform }),
+    });
   }
 
   async connectSocialPlatform(platform: string) {

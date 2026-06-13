@@ -63,10 +63,7 @@ impl PlatformProvider for TwitterProvider {
             return Err(format!("Twitter API {status}: {text}"));
         }
 
-        let json: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| format!("Parse error: {e}"))?;
+        let json: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
 
         json.get("data")
             .and_then(|d| d.get("id"))
@@ -122,6 +119,143 @@ impl LinkedInProvider {
             client: reqwest::Client::new(),
         }
     }
+
+    /// LinkedIn upload recipes. `feedshare-image` for images, `feedshare-document`
+    /// for PDFs (which render as the swipeable carousel posts).
+    fn recipe_for(content_type: &ContentType) -> Option<&'static str> {
+        match content_type {
+            ContentType::Image => Some("urn:li:digitalmediaRecipe:feedshare-image"),
+            ContentType::Document => Some("urn:li:digitalmediaRecipe:feedshare-document"),
+            _ => None,
+        }
+    }
+
+    /// Register an upload with LinkedIn and get back an upload URL + asset URN.
+    /// Step 1 of the 3-step media upload flow.
+    async fn register_upload(
+        &self,
+        token: &str,
+        owner: &str,
+        recipe: &str,
+    ) -> Result<(String, String), String> {
+        // Spec requires `supportedUploadMechanism: ["SYNCHRONOUS_UPLOAD"]` so
+        // that LinkedIn confirms ingestion of the bytes before we attempt to
+        // create the post (otherwise step 3 races step 2 and fails).
+        let body = serde_json::json!({
+            "registerUploadRequest": {
+                "recipes": [recipe],
+                "owner": format!("urn:li:person:{owner}"),
+                "serviceRelationships": [
+                    {
+                        "relationshipType": "OWNER",
+                        "identifier": "urn:li:userGeneratedContent"
+                    }
+                ],
+                "supportedUploadMechanism": ["SYNCHRONOUS_UPLOAD"]
+            }
+        });
+
+        let resp = self
+            .client
+            .post("https://api.linkedin.com/v2/assets?action=registerUpload")
+            .bearer_auth(token)
+            .header("X-Restli-Protocol-Version", "2.0.0")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("LinkedIn registerUpload error: {e}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            eprintln!("[linkedin] step 1 registerUpload failed: HTTP {status}: {text}");
+            return Err(format!("LinkedIn registerUpload {status}: {text}"));
+        }
+
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("LinkedIn registerUpload parse error: {e}"))?;
+
+        let upload_url = json
+            .pointer("/value/uploadMechanism/com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest/uploadUrl")
+            .and_then(|v| v.as_str())
+            .ok_or("LinkedIn registerUpload: no uploadUrl in response")?
+            .to_string();
+
+        let asset = json
+            .pointer("/value/asset")
+            .and_then(|v| v.as_str())
+            .ok_or("LinkedIn registerUpload: no asset URN in response")?
+            .to_string();
+
+        Ok((upload_url, asset))
+    }
+
+    /// Download remote media and PUT it to LinkedIn's upload URL.
+    /// Step 2 of the 3-step flow. Returns Ok once LinkedIn has accepted the bytes.
+    async fn upload_media_from_url(
+        &self,
+        token: &str,
+        upload_url: &str,
+        media_url: &str,
+    ) -> Result<(), String> {
+        // Fetch the user-supplied media. We trust the URL — it's something the
+        // user (or their agent) pasted. We do *not* re-upload local files yet.
+        let download = self
+            .client
+            .get(media_url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch media from {media_url}: {e}"))?;
+
+        if !download.status().is_success() {
+            return Err(format!(
+                "Failed to fetch media from {media_url}: HTTP {}",
+                download.status()
+            ));
+        }
+
+        let bytes = download
+            .bytes()
+            .await
+            .map_err(|e| format!("Failed to read media bytes: {e}"))?;
+
+        self.upload_media_bytes(token, upload_url, bytes.to_vec())
+            .await
+    }
+
+    /// PUT raw image bytes to LinkedIn's signed upload URL.
+    ///
+    /// Per the LinkedIn assets API spec, this request must carry **only** the
+    /// `Authorization` header — no `Content-Type`, no Restli header. A
+    /// successful synchronous upload returns HTTP 201.
+    async fn upload_media_bytes(
+        &self,
+        token: &str,
+        upload_url: &str,
+        bytes: Vec<u8>,
+    ) -> Result<(), String> {
+        let resp = self
+            .client
+            .put(upload_url)
+            .bearer_auth(token)
+            .body(bytes)
+            .send()
+            .await
+            .map_err(|e| format!("LinkedIn media upload error: {e}"))?;
+
+        let status = resp.status();
+        // Synchronous upload should return 201 Created. Some edge regions
+        // return 200; accept both but reject anything else loudly.
+        if status.as_u16() != 201 && status.as_u16() != 200 {
+            let text = resp.text().await.unwrap_or_default();
+            eprintln!("[linkedin] step 2 binary upload failed: HTTP {status}: {text}");
+            return Err(format!("LinkedIn media upload {status}: {text}"));
+        }
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -143,14 +277,72 @@ impl PlatformProvider for LinkedInProvider {
             .get("person_id")
             .ok_or("LinkedIn person_id not configured")?;
 
+        // LinkedIn renders the share commentary as plain text — strip any
+        // markdown the user (or an LLM) may have inserted so it doesn't
+        // appear literally on the timeline.
+        let clean = crate::social::strip_markdown(&post.content);
+
+        // Decide whether this is a media post (image / PDF) or text-only.
+        // Media posts go through the 3-step upload flow; text posts hit
+        // /v2/ugcPosts directly.
+        let recipe = Self::recipe_for(&post.content_type);
+        let has_media = recipe.is_some() && !post.media_urls.is_empty();
+
+        let (share_media_category, media_array) = if has_media {
+            let recipe = recipe.unwrap();
+            // Upload every URL the user supplied (LinkedIn allows multiple
+            // images / a single PDF) and collect their asset URNs.
+            let mut media_items = Vec::with_capacity(post.media_urls.len());
+            for url in &post.media_urls {
+                let (upload_url, asset) = self.register_upload(token, author, recipe).await?;
+                self.upload_media_from_url(token, &upload_url, url).await?;
+
+                // Document posts require a `title` — fall back to the post
+                // title or a sensible default if the user didn't set one.
+                let title_text = post
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| match post.content_type {
+                        ContentType::Document => "Shared document".to_string(),
+                        _ => String::new(),
+                    });
+
+                media_items.push(serde_json::json!({
+                    "status": "READY",
+                    "media": asset,
+                    "title": { "text": title_text },
+                    "description": { "text": "" }
+                }));
+
+                // PDF posts only support one document attachment in the UGC
+                // API; bail after the first to avoid silent truncation.
+                if matches!(post.content_type, ContentType::Document) {
+                    break;
+                }
+            }
+
+            let category = match post.content_type {
+                ContentType::Document => "NATIVE_DOCUMENT",
+                _ => "IMAGE",
+            };
+            (category, media_items)
+        } else {
+            ("NONE", Vec::new())
+        };
+
+        let mut share_content = serde_json::json!({
+            "shareCommentary": { "text": clean },
+            "shareMediaCategory": share_media_category,
+        });
+        if !media_array.is_empty() {
+            share_content["media"] = serde_json::Value::Array(media_array);
+        }
+
         let body = serde_json::json!({
             "author": format!("urn:li:person:{author}"),
             "lifecycleState": "PUBLISHED",
             "specificContent": {
-                "com.linkedin.ugc.ShareContent": {
-                    "shareCommentary": { "text": post.content },
-                    "shareMediaCategory": "NONE"
-                }
+                "com.linkedin.ugc.ShareContent": share_content
             },
             "visibility": {
                 "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
@@ -168,8 +360,10 @@ impl PlatformProvider for LinkedInProvider {
             .map_err(|e| format!("LinkedIn API error: {e}"))?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(format!("LinkedIn API error: {text}"));
+            eprintln!("[linkedin] step 3 ugcPosts failed: HTTP {status}: {text}");
+            return Err(format!("LinkedIn API error {status}: {text}"));
         }
 
         let json: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
@@ -292,6 +486,25 @@ impl PlatformProvider for BlueskyProvider {
 
 // ── Facebook Page Provider ───────────────────────────────────────────
 
+/// Best-effort image MIME from a URL/path extension. Falls back to JPEG
+/// because that's what Facebook's photo endpoint is most forgiving with.
+fn guess_image_mime(url_or_path: &str) -> String {
+    let lower = url_or_path
+        .split('?')
+        .next()
+        .unwrap_or(url_or_path)
+        .to_lowercase();
+    if lower.ends_with(".png") {
+        "image/png".into()
+    } else if lower.ends_with(".gif") {
+        "image/gif".into()
+    } else if lower.ends_with(".webp") {
+        "image/webp".into()
+    } else {
+        "image/jpeg".into()
+    }
+}
+
 /// Facebook Page provider via Graph API.
 pub struct FacebookProvider {
     pub config: PlatformConfig,
@@ -325,15 +538,99 @@ impl PlatformProvider for FacebookProvider {
             .get("page_id")
             .ok_or("Facebook page_id not configured")?;
 
-        let body = serde_json::json!({
-            "message": post.content,
-            "access_token": token,
-        });
+        // ── Image post ────────────────────────────────────────────────────────
+        // If a single image is attached, use the /photos endpoint which
+        // creates a photo post (image + caption). PDF/document is not
+        // supported by the Facebook Pages API — fall back to text-only.
+        //
+        // IMPORTANT: We must upload the image *bytes* via multipart (`source`
+        // field) rather than passing a `url` field. If we send `url`,
+        // Facebook's own servers try to fetch it, which fails for any
+        // non-publicly-reachable URL (localhost, 127.0.0.1, private LAN,
+        // ngrok-free tunnels behind auth, etc.) with the misleading error:
+        //   code 324, "Missing or invalid image file" (is_transient=true).
+        // Multipart upload sidesteps that entirely.
+        if matches!(post.content_type, crate::social::ContentType::Image)
+            && post.media_urls.len() == 1
+        {
+            let image_url = &post.media_urls[0];
 
+            // Fetch the image bytes ourselves (works for http://, https://,
+            // and our own /uploads/ URLs).
+            let img_resp = self
+                .client
+                .get(image_url)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to download image '{image_url}': {e}"))?;
+            if !img_resp.status().is_success() {
+                return Err(format!(
+                    "Failed to download image '{image_url}': HTTP {}",
+                    img_resp.status()
+                ));
+            }
+            let img_mime = img_resp
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|h| h.to_str().ok())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| guess_image_mime(image_url));
+            let img_bytes = img_resp
+                .bytes()
+                .await
+                .map_err(|e| format!("Failed to read image bytes: {e}"))?;
+
+            let filename = image_url
+                .rsplit('/')
+                .next()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("upload.jpg")
+                .to_string();
+
+            let part = reqwest::multipart::Part::bytes(img_bytes.to_vec())
+                .file_name(filename)
+                .mime_str(&img_mime)
+                .map_err(|e| format!("Invalid image mime '{img_mime}': {e}"))?;
+
+            let form = reqwest::multipart::Form::new()
+                .text("caption", post.content.clone())
+                .text("access_token", token.clone())
+                .part("source", part);
+
+            let resp = self
+                .client
+                .post(format!("https://graph.facebook.com/v22.0/{page_id}/photos"))
+                .multipart(form)
+                .send()
+                .await
+                .map_err(|e| format!("Facebook API error: {e}"))?;
+
+            if !resp.status().is_success() {
+                let text = resp.text().await.unwrap_or_default();
+                return Err(format!("Facebook photo post error: {text}"));
+            }
+
+            let json: serde_json::Value =
+                resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
+            return json
+                .get("post_id")
+                .or_else(|| json.get("id"))
+                .and_then(|id| id.as_str())
+                .map(|s| s.to_string())
+                .ok_or_else(|| "No post ID in Facebook photo response".to_string());
+        }
+
+        // ── Text post (default) ───────────────────────────────────────────────
+        // Send as form fields (not JSON body) — the Graph API requires
+        // access_token as a query param or form field. Embedding it in a
+        // JSON body causes a code-190 "could not be decrypted" error.
         let resp = self
             .client
-            .post(format!("https://graph.facebook.com/v21.0/{page_id}/feed"))
-            .json(&body)
+            .post(format!("https://graph.facebook.com/v22.0/{page_id}/feed"))
+            .form(&[
+                ("message", post.content.as_str()),
+                ("access_token", token.as_str()),
+            ])
             .send()
             .await
             .map_err(|e| format!("Facebook API error: {e}"))?;
@@ -360,7 +657,7 @@ impl PlatformProvider for FacebookProvider {
         let resp = self
             .client
             .delete(format!(
-                "https://graph.facebook.com/v21.0/{platform_post_id}"
+                "https://graph.facebook.com/v22.0/{platform_post_id}"
             ))
             .query(&[("access_token", token.as_str())])
             .send()
@@ -384,10 +681,13 @@ impl PlatformProvider for FacebookProvider {
         let resp = self
             .client
             .get(format!(
-                "https://graph.facebook.com/v21.0/{platform_post_id}"
+                "https://graph.facebook.com/v22.0/{platform_post_id}"
             ))
             .query(&[
-                ("fields", "likes.summary(true),shares,comments.summary(true)"),
+                (
+                    "fields",
+                    "likes.summary(true),shares,comments.summary(true)",
+                ),
                 ("access_token", token),
             ])
             .send()
@@ -470,9 +770,8 @@ impl PlatformProvider for InstagramProvider {
 
         let media_url = &post.media_urls[0];
         // Determine if video or image
-        let is_video = media_url.contains(".mp4")
-            || media_url.contains(".mov")
-            || media_url.contains("video");
+        let is_video =
+            media_url.contains(".mp4") || media_url.contains(".mov") || media_url.contains("video");
 
         if is_video {
             container_body["media_type"] = serde_json::json!("REELS");
@@ -484,7 +783,7 @@ impl PlatformProvider for InstagramProvider {
         let container_resp = self
             .client
             .post(format!(
-                "https://graph.facebook.com/v21.0/{ig_user_id}/media"
+                "https://graph.facebook.com/v22.0/{ig_user_id}/media"
             ))
             .json(&container_body)
             .send()
@@ -510,7 +809,7 @@ impl PlatformProvider for InstagramProvider {
         let publish_resp = self
             .client
             .post(format!(
-                "https://graph.facebook.com/v21.0/{ig_user_id}/media_publish"
+                "https://graph.facebook.com/v22.0/{ig_user_id}/media_publish"
             ))
             .json(&publish_body)
             .send()
@@ -547,7 +846,7 @@ impl PlatformProvider for InstagramProvider {
         let resp = self
             .client
             .get(format!(
-                "https://graph.facebook.com/v21.0/{platform_post_id}/insights"
+                "https://graph.facebook.com/v22.0/{platform_post_id}/insights"
             ))
             .query(&[
                 ("metric", "impressions,reach,likes,comments,shares"),
@@ -1166,9 +1465,7 @@ impl PlatformProvider for ThreadsProvider {
 
         let container_resp = self
             .client
-            .post(format!(
-                "https://graph.threads.net/v1.0/{user_id}/threads"
-            ))
+            .post(format!("https://graph.threads.net/v1.0/{user_id}/threads"))
             .json(&body)
             .send()
             .await
@@ -1544,7 +1841,10 @@ impl PlatformProvider for SlackProvider {
         let json: serde_json::Value = resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
 
         if json.get("ok").and_then(|v| v.as_bool()) != Some(true) {
-            let err = json.get("error").and_then(|e| e.as_str()).unwrap_or("unknown");
+            let err = json
+                .get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("unknown");
             return Err(format!("Slack error: {err}"));
         }
 
@@ -1636,7 +1936,10 @@ impl PlatformProvider for MediumProvider {
             .await
             .map_err(|e| format!("Medium API error: {e}"))?;
 
-        let me: serde_json::Value = me_resp.json().await.map_err(|e| format!("Parse error: {e}"))?;
+        let me: serde_json::Value = me_resp
+            .json()
+            .await
+            .map_err(|e| format!("Parse error: {e}"))?;
         let user_id = me
             .pointer("/data/id")
             .and_then(|v| v.as_str())
@@ -1653,9 +1956,7 @@ impl PlatformProvider for MediumProvider {
 
         let resp = self
             .client
-            .post(format!(
-                "https://api.medium.com/v1/users/{user_id}/posts"
-            ))
+            .post(format!("https://api.medium.com/v1/users/{user_id}/posts"))
             .bearer_auth(token)
             .json(&body)
             .send()
@@ -1785,9 +2086,7 @@ impl PlatformProvider for DevToProvider {
 
         let resp = self
             .client
-            .get(format!(
-                "https://dev.to/api/articles/{platform_post_id}"
-            ))
+            .get(format!("https://dev.to/api/articles/{platform_post_id}"))
             .header("api-key", api_key.as_str())
             .send()
             .await
@@ -1885,7 +2184,10 @@ impl PlatformProvider for HashnodeProvider {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .ok_or_else(|| {
-                let errors = json.get("errors").map(|e| e.to_string()).unwrap_or_default();
+                let errors = json
+                    .get("errors")
+                    .map(|e| e.to_string())
+                    .unwrap_or_default();
                 format!("Hashnode publish failed: {errors}")
             })
     }
@@ -1991,9 +2293,7 @@ impl PlatformProvider for WordPressProvider {
 
         let resp = self
             .client
-            .delete(format!(
-                "{site_url}/wp-json/wp/v2/posts/{platform_post_id}"
-            ))
+            .delete(format!("{site_url}/wp-json/wp/v2/posts/{platform_post_id}"))
             .basic_auth(username, Some(password))
             .send()
             .await
@@ -2012,5 +2312,252 @@ impl PlatformProvider for WordPressProvider {
 
     fn content_limit(&self) -> usize {
         100_000
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LinkedIn image-post helper
+// ---------------------------------------------------------------------------
+
+/// Detect the MIME type of an image from its magic bytes.
+/// Returns `Some("image/jpeg" | "image/png")` for supported formats, else `None`.
+fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() >= 3 && bytes[0..3] == [0xFF, 0xD8, 0xFF] {
+        Some("image/jpeg")
+    } else if bytes.len() >= 8 && bytes[0..8] == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
+        Some("image/png")
+    } else {
+        None
+    }
+}
+
+/// Post an image **with text** to LinkedIn using the documented 3-step flow.
+///
+/// 1. `POST /v2/assets?action=registerUpload` (with `SYNCHRONOUS_UPLOAD`)
+///    → returns `uploadUrl` + `asset` URN.
+/// 2. `PUT {uploadUrl}` with the raw image bytes (only the `Authorization`
+///    header — no `Content-Type`). Expects HTTP 201.
+/// 3. `POST /v2/ugcPosts` with `shareMediaCategory: "IMAGE"` and the asset URN.
+///
+/// Only JPEG and PNG images are accepted. Returns the new post URN on success.
+/// Each failed step prints a clear error message including the HTTP status.
+pub async fn post_image_to_linkedin(
+    access_token: &str,
+    user_id: &str,
+    image_path: &std::path::Path,
+    text: &str,
+) -> Result<String, String> {
+    use std::io::Read;
+
+    // ---- Validate the image up front (JPEG / PNG only) --------------------
+    let mut file = std::fs::File::open(image_path)
+        .map_err(|e| format!("Cannot open image at {}: {e}", image_path.display()))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|e| format!("Cannot read image at {}: {e}", image_path.display()))?;
+
+    let mime = sniff_image_mime(&bytes).ok_or_else(|| {
+        format!(
+            "Unsupported image format at {} — only JPEG and PNG are accepted",
+            image_path.display()
+        )
+    })?;
+    println!(
+        "[linkedin] image OK ({mime}, {} bytes) — starting 3-step upload",
+        bytes.len()
+    );
+
+    let client = reqwest::Client::new();
+
+    // ---- Step 1: register upload -----------------------------------------
+    let register_body = serde_json::json!({
+        "registerUploadRequest": {
+            "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+            "owner": format!("urn:li:person:{user_id}"),
+            "serviceRelationships": [
+                {
+                    "relationshipType": "OWNER",
+                    "identifier": "urn:li:userGeneratedContent"
+                }
+            ],
+            "supportedUploadMechanism": ["SYNCHRONOUS_UPLOAD"]
+        }
+    });
+
+    let reg_resp = client
+        .post("https://api.linkedin.com/v2/assets?action=registerUpload")
+        .bearer_auth(access_token)
+        .header("X-Restli-Protocol-Version", "2.0.0")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .json(&register_body)
+        .send()
+        .await
+        .map_err(|e| format!("[linkedin] step 1 transport error: {e}"))?;
+
+    let reg_status = reg_resp.status();
+    if !reg_status.is_success() {
+        let body = reg_resp.text().await.unwrap_or_default();
+        let msg = format!("[linkedin] step 1 registerUpload FAILED: HTTP {reg_status}: {body}");
+        eprintln!("{msg}");
+        return Err(msg);
+    }
+
+    let reg_json: serde_json::Value = reg_resp
+        .json()
+        .await
+        .map_err(|e| format!("[linkedin] step 1 parse error: {e}"))?;
+
+    let upload_url = reg_json
+        .pointer(
+            "/value/uploadMechanism/com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest/uploadUrl",
+        )
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "[linkedin] step 1: missing uploadUrl in response".to_string())?
+        .to_string();
+
+    let asset_urn = reg_json
+        .pointer("/value/asset")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "[linkedin] step 1: missing asset URN in response".to_string())?
+        .to_string();
+
+    println!("[linkedin] step 1 OK — asset={asset_urn}");
+
+    // ---- Step 2: PUT the raw bytes (NO Content-Type header) --------------
+    let put_resp = client
+        .put(&upload_url)
+        .bearer_auth(access_token)
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| format!("[linkedin] step 2 transport error: {e}"))?;
+
+    let put_status = put_resp.status();
+    // SYNCHRONOUS_UPLOAD returns 201 Created. Tolerate 200 for parity with
+    // some edge regions but reject anything else loudly.
+    if put_status.as_u16() != 201 && put_status.as_u16() != 200 {
+        let body = put_resp.text().await.unwrap_or_default();
+        let msg = format!("[linkedin] step 2 binary upload FAILED: HTTP {put_status}: {body}");
+        eprintln!("{msg}");
+        return Err(msg);
+    }
+    println!("[linkedin] step 2 OK — bytes uploaded (HTTP {put_status})");
+
+    // ---- Step 3: create the UGC post with shareMediaCategory=IMAGE -------
+    let post_body = serde_json::json!({
+        "author": format!("urn:li:person:{user_id}"),
+        "lifecycleState": "PUBLISHED",
+        "specificContent": {
+            "com.linkedin.ugc.ShareContent": {
+                "shareCommentary": { "text": text },
+                "shareMediaCategory": "IMAGE",
+                "media": [
+                    {
+                        "status": "READY",
+                        "description": { "text": "" },
+                        "media": asset_urn,
+                        "title": { "text": "" }
+                    }
+                ]
+            }
+        },
+        "visibility": {
+            "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
+        }
+    });
+
+    let post_resp = client
+        .post("https://api.linkedin.com/v2/ugcPosts")
+        .bearer_auth(access_token)
+        .header("X-Restli-Protocol-Version", "2.0.0")
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .json(&post_body)
+        .send()
+        .await
+        .map_err(|e| format!("[linkedin] step 3 transport error: {e}"))?;
+
+    let post_status = post_resp.status();
+    if !post_status.is_success() {
+        let body = post_resp.text().await.unwrap_or_default();
+        let msg = format!("[linkedin] step 3 ugcPosts FAILED: HTTP {post_status}: {body}");
+        eprintln!("{msg}");
+        return Err(msg);
+    }
+
+    // The post URN is returned in the `x-restli-id` header or the `id` body field.
+    let header_urn = post_resp
+        .headers()
+        .get("x-restli-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let post_urn = match header_urn {
+        Some(u) if !u.is_empty() => u,
+        _ => {
+            let json: serde_json::Value = post_resp
+                .json()
+                .await
+                .map_err(|e| format!("[linkedin] step 3 parse error: {e}"))?;
+            json.get("id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .ok_or_else(|| "[linkedin] step 3: no post ID in response".to_string())?
+        }
+    };
+
+    println!("[linkedin] step 3 OK — post URN={post_urn}");
+    Ok(post_urn)
+}
+
+#[cfg(test)]
+mod linkedin_image_tests {
+    use super::*;
+
+    #[test]
+    fn sniff_image_mime_recognises_jpeg_and_png() {
+        let jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+        let png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00];
+        let gif = b"GIF89a...";
+        assert_eq!(sniff_image_mime(&jpeg), Some("image/jpeg"));
+        assert_eq!(sniff_image_mime(&png), Some("image/png"));
+        assert_eq!(sniff_image_mime(gif), None);
+        assert_eq!(sniff_image_mime(&[]), None);
+    }
+
+    #[tokio::test]
+    async fn rejects_non_image_files() {
+        let tmp = std::env::temp_dir().join("pylot_not_an_image.txt");
+        std::fs::write(&tmp, b"hello world").unwrap();
+        let err = post_image_to_linkedin("token", "user", &tmp, "hi")
+            .await
+            .unwrap_err();
+        assert!(err.contains("Unsupported image format"), "got: {err}");
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    /// End-to-end smoke test against the real LinkedIn API. Skipped unless
+    /// `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_USER_ID` and `LINKEDIN_TEST_IMAGE`
+    /// are all set — run manually with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore = "requires live LinkedIn credentials"]
+    async fn live_post_image_to_linkedin() {
+        let token = std::env::var("LINKEDIN_ACCESS_TOKEN")
+            .expect("set LINKEDIN_ACCESS_TOKEN to run this test");
+        let user =
+            std::env::var("LINKEDIN_USER_ID").expect("set LINKEDIN_USER_ID (numeric person id)");
+        let image = std::env::var("LINKEDIN_TEST_IMAGE").unwrap_or_else(|_| "test.png".to_string());
+        let path = std::path::PathBuf::from(image);
+
+        let urn = post_image_to_linkedin(
+            &token,
+            &user,
+            &path,
+            "Automated 3-step image post test from pylot 🚀",
+        )
+        .await
+        .expect("post_image_to_linkedin failed");
+
+        println!("posted: {urn}");
+        assert!(urn.starts_with("urn:li:"));
     }
 }

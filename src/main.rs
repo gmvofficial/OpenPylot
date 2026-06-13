@@ -760,6 +760,119 @@ fn build_tool_registry(
         }
     }
 
+    // -- Social platforms (if configured) --
+    {
+        use crate::tools::social::{
+            DiscordSendMessage, FacebookPost, LinkedInPost, SlackSendMessage, TwitterPost,
+        };
+
+        // LinkedIn — needs an access token. The `person_id` (member URN) is
+        // resolved lazily on first post via /v2/userinfo or /v2/me, so we
+        // register the tool as soon as a token exists.
+        if config.social_linkedin_enabled {
+            if let Some(token) = config.linkedin_access_token.as_ref() {
+                tools.register(Box::new(LinkedInPost::new(
+                    token.clone(),
+                    config.linkedin_person_id.clone(),
+                )));
+                let pid_status = match config.linkedin_person_id.as_deref() {
+                    Some(id) if !id.is_empty() => {
+                        let valid = id.len() <= 60
+                            && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+                        let suffix: String = id
+                            .chars()
+                            .rev()
+                            .take(4)
+                            .collect::<String>()
+                            .chars()
+                            .rev()
+                            .collect();
+                        format!("cached={} (…{}) valid={}", id.len(), suffix, valid)
+                    }
+                    _ => "absent (will resolve on first post)".to_string(),
+                };
+                let tok_len = token.len();
+                tracing::info!(
+                    "LinkedIn post tool loaded (token: {} chars, person_id: {})",
+                    tok_len,
+                    pid_status
+                );
+            }
+        }
+
+        // Twitter / X — OAuth 1.0a user-context (4 keys).
+        if config.social_twitter_enabled {
+            let k = config.twitter_api_key.as_ref();
+            let s = config.twitter_api_secret.as_ref();
+            let at = config.twitter_access_token.as_ref();
+            let ats = config.twitter_access_token_secret.as_ref();
+            if let (Some(k), Some(s), Some(at), Some(ats)) = (k, s, at, ats) {
+                tools.register(Box::new(TwitterPost::new(
+                    k.clone(),
+                    s.clone(),
+                    at.clone(),
+                    ats.clone(),
+                )));
+                tracing::info!(
+                    "Twitter post tool loaded (api_key={}c, api_secret={}c, \
+                     access_token={}c, access_token_secret={}c)",
+                    k.len(),
+                    s.len(),
+                    at.len(),
+                    ats.len()
+                );
+            } else {
+                tracing::warn!(
+                    "Twitter enabled but missing credentials — \
+                     api_key={}, api_secret={}, access_token={}, access_token_secret={}",
+                    k.is_some(),
+                    s.is_some(),
+                    at.is_some(),
+                    ats.is_some()
+                );
+            }
+        } else {
+            tracing::debug!(
+                "Twitter post tool NOT loaded (social.twitter_enabled={}, \
+                 has_api_key={})",
+                config.social_twitter_enabled,
+                config.twitter_api_key.is_some()
+            );
+        }
+
+        // Facebook Page — page ID + long-lived page access token.
+        if config.social_facebook_enabled {
+            if let (Some(pid), Some(tok)) = (
+                config.facebook_page_id.as_ref(),
+                config.facebook_access_token.as_ref(),
+            ) {
+                tools.register(Box::new(FacebookPost::new(pid.clone(), tok.clone())));
+                tracing::info!("Facebook post tool loaded");
+            }
+        }
+
+        // Discord — bot token (+ optional default channel).
+        // Read directly from vault since AppConfig doesn't expose discord fields.
+        if let Ok(vault) =
+            crate::secrets::SecretsVault::open(&crate::secrets::default_secrets_path(), None)
+        {
+            if let Some(bot_token) = vault.get("discord.bot_token") {
+                let channel_id = vault.get("discord.channel_id");
+                tools.register(Box::new(DiscordSendMessage::new(bot_token, channel_id)));
+                tracing::info!("Discord send_message tool loaded");
+            }
+
+            if let Some(slack_token) = vault.get("slack.bot_token") {
+                let default_channel = vault.get("slack.channel");
+                tools.register(Box::new(SlackSendMessage::new(
+                    slack_token,
+                    default_channel,
+                )));
+                tracing::info!("Slack send_message tool loaded");
+            }
+        }
+    }
+
     // -- Memory tools (if smart memory is enabled) --
     if let Some(sm) = smart_memory {
         use crate::tools::memory_tools::*;
@@ -1144,6 +1257,33 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
                     },
                 )));
                 count += 1;
+            }
+        }
+        if config.social_facebook_enabled {
+            if let (Some(ref token), Some(ref page_id)) =
+                (&config.facebook_access_token, &config.facebook_page_id)
+            {
+                let mut extra = std::collections::HashMap::new();
+                extra.insert("page_id".to_string(), page_id.clone());
+                manager.add_provider(Box::new(crate::social::FacebookProvider::new(
+                    crate::social::PlatformConfig {
+                        platform: crate::social::Platform::Facebook,
+                        api_key: None,
+                        api_secret: None,
+                        access_token: Some(token.clone()),
+                        refresh_token: None,
+                        extra,
+                    },
+                )));
+                count += 1;
+                tracing::info!("Facebook provider registered");
+            } else {
+                tracing::warn!(
+                    "Facebook enabled but credentials missing \
+                     (access_token={}, page_id={}) — restart after connecting via UI.",
+                    config.facebook_access_token.is_some(),
+                    config.facebook_page_id.is_some(),
+                );
             }
         }
 

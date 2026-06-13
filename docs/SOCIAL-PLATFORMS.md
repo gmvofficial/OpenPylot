@@ -472,3 +472,11 @@ WORDPRESS_APP_PASSWORD=your_application_password
 - Requires WordPress 5.6+ (Application Passwords are built-in)
 - For self-hosted sites, ensure the REST API is enabled (`/wp-json/wp/v2/posts`)
 - The site URL should not include a trailing slash
+
+---
+
+## See also
+
+- [API.md › Social media](./API.md#social-media) — HTTP endpoints for creating, publishing, and managing posts and campaigns.
+- [CONFIGURATION.md › Social Media Platforms](./CONFIGURATION.md#social-media-platforms) — all environment variables and TOML keys.
+- [SECURITY.md](./SECURITY.md) — how social-media credentials are stored and isolated.

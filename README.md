@@ -39,28 +39,28 @@ OpenPylot is a modular, extensible personal AI assistant built in Rust. It ships
 
 ## Features
 
-| Category | Capabilities |
-|----------|-------------|
-| **LLM Providers** | OpenAI (GPT-4o) and Anthropic (Claude) with hot-swappable configuration |
-| **Smart Memory** | SQLite-backed semantic memory with OpenAI embeddings — personal facts, knowledge base, auto-extraction |
-| **Skills System** | Declarative SKILL.md skills with YAML frontmatter — pattern-matched to user intents at runtime |
-| **Sub-Agents** | Spawn specialist sub-agents (researcher, coder, marketing) with isolated context and tool access |
-| **Streaming** | Real-time token streaming over WebSocket and SSE for responsive chat experiences |
-| **MCP Support** | Model Context Protocol — connect external tool servers via JSON-RPC |
-| **Learning** | LLM-as-judge auto-scoring, prompt evolution, and automatic skill generation from failure patterns |
-| **Social Media** | 17 platform providers — Twitter/X, LinkedIn, Bluesky, Facebook, Instagram, TikTok, YouTube, Pinterest, Reddit, Threads, Mastodon, Discord, Slack, Medium, Dev.to, Hashnode, WordPress |
-| **Marketing Agent** | Campaign planning, content strategies, content generation with approval workflow |
-| **Google Calendar** | OAuth 2.0 login, list/create events, create meetings with Google Meet links |
-| **Gmail** | Search emails, send & reply, create/send/delete drafts |
-| **Telegram** | Full bot mode with slash commands, send/receive messages |
-| **WhatsApp** | Send messages via Twilio |
-| **Web Dashboard** | Next.js web UI with real-time chat (WebSocket), integrations, knowledge base, settings |
-| **Notes & Reminders** | Create, list, search, delete — stored locally with scheduled background checks |
-| **Scheduler** | Cron-based background jobs: RSVP monitor, meeting reminders, daily briefing, email digest |
-| **Webhooks** | Receive push notifications from Google Calendar, Gmail, GitHub, and Slack |
-| **Secrets Vault** | AES-256-GCM encrypted, machine-bound credential storage with Argon2id KDF |
-| **Python SDK** | PyO3 bindings — `pip install pylot` |
-| **Node.js SDK** | NAPI-RS bindings — `npm install pylot` |
+| Category              | Capabilities                                                                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **LLM Providers**     | OpenAI (GPT-4o) and Anthropic (Claude) with hot-swappable configuration                                                                                                               |
+| **Smart Memory**      | SQLite-backed semantic memory with OpenAI embeddings — personal facts, knowledge base, auto-extraction                                                                                |
+| **Skills System**     | Declarative SKILL.md skills with YAML frontmatter — pattern-matched to user intents at runtime                                                                                        |
+| **Sub-Agents**        | Spawn specialist sub-agents (researcher, coder, marketing) with isolated context and tool access                                                                                      |
+| **Streaming**         | Real-time token streaming over WebSocket and SSE for responsive chat experiences                                                                                                      |
+| **MCP Support**       | Model Context Protocol — connect external tool servers via JSON-RPC                                                                                                                   |
+| **Learning**          | LLM-as-judge auto-scoring, prompt evolution, and automatic skill generation from failure patterns                                                                                     |
+| **Social Media**      | 17 platform providers — Twitter/X, LinkedIn, Bluesky, Facebook, Instagram, TikTok, YouTube, Pinterest, Reddit, Threads, Mastodon, Discord, Slack, Medium, Dev.to, Hashnode, WordPress |
+| **Marketing Agent**   | Campaign planning, content strategies, content generation with approval workflow                                                                                                      |
+| **Google Calendar**   | OAuth 2.0 login, list/create events, create meetings with Google Meet links                                                                                                           |
+| **Gmail**             | Search emails, send & reply, create/send/delete drafts                                                                                                                                |
+| **Telegram**          | Full bot mode with slash commands, send/receive messages                                                                                                                              |
+| **WhatsApp**          | Send messages via Twilio                                                                                                                                                              |
+| **Web Dashboard**     | Next.js web UI with real-time chat (WebSocket), integrations, knowledge base, settings                                                                                                |
+| **Notes & Reminders** | Create, list, search, delete — stored locally with scheduled background checks                                                                                                        |
+| **Scheduler**         | Cron-based background jobs: RSVP monitor, meeting reminders, daily briefing, email digest                                                                                             |
+| **Webhooks**          | Receive push notifications from Google Calendar, Gmail, GitHub, and Slack                                                                                                             |
+| **Secrets Vault**     | AES-256-GCM encrypted, machine-bound credential storage with Argon2id KDF                                                                                                             |
+| **Python SDK**        | PyO3 bindings — `pip install pylot`                                                                                                                                                   |
+| **Node.js SDK**       | NAPI-RS bindings — `npm install pylot`                                                                                                                                                |
 
 ---
 
@@ -112,6 +112,7 @@ pylot               # Start interactive REPL
 ```
 
 The `init` wizard guides you through:
+
 1. LLM provider selection and API key
 2. Agent name and persona
 3. Integrations (Google Calendar & Gmail, Telegram, WhatsApp)
@@ -162,7 +163,7 @@ pylot chat "Schedule a meeting with alice@example.com tomorrow at 2pm"
 ### REPL Commands
 
 | Command  | Description                |
-|----------|----------------------------|
+| -------- | -------------------------- |
 | `/clear` | Clear conversation history |
 | `/tools` | List loaded tools          |
 | `/help`  | Show help                  |
@@ -170,27 +171,27 @@ pylot chat "Schedule a meeting with alice@example.com tomorrow at 2pm"
 
 ### CLI Reference
 
-| Command | Description |
-|---------|-------------|
-| `pylot` | Interactive REPL |
-| `pylot init` | Setup wizard (`--reset` to start fresh, `--only <service>` for one integration) |
-| `pylot chat "<message>"` | One-shot query |
-| `pylot add <service>` | Add an integration (google-calendar, telegram, whatsapp, github, slack) |
-| `pylot remove <service>` | Remove an integration |
-| `pylot doctor` | Diagnostic checks |
-| `pylot status` | Show agent status and connected services |
-| `pylot tools` | List available tools |
-| `pylot telegram-bot` | Start Telegram bot mode |
-| `pylot serve` | Start background daemon with scheduler |
-| `pylot serve install` | Install as system service (launchd / systemd) |
-| `pylot serve uninstall` | Remove system service |
-| `pylot jobs list` | List scheduled jobs |
-| `pylot jobs run <name>` | Run a job immediately |
-| `pylot jobs enable <name>` | Enable a job |
-| `pylot jobs disable <name>` | Disable a job |
-| `pylot config list` | Show current configuration |
-| `pylot config set <key> <value>` | Update a configuration value |
-| `pylot logs` | Tail agent logs (`--scheduler` for scheduler logs) |
+| Command                          | Description                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------- |
+| `pylot`                          | Interactive REPL                                                                |
+| `pylot init`                     | Setup wizard (`--reset` to start fresh, `--only <service>` for one integration) |
+| `pylot chat "<message>"`         | One-shot query                                                                  |
+| `pylot add <service>`            | Add an integration (google-calendar, telegram, whatsapp, github, slack)         |
+| `pylot remove <service>`         | Remove an integration                                                           |
+| `pylot doctor`                   | Diagnostic checks                                                               |
+| `pylot status`                   | Show agent status and connected services                                        |
+| `pylot tools`                    | List available tools                                                            |
+| `pylot telegram-bot`             | Start Telegram bot mode                                                         |
+| `pylot serve`                    | Start background daemon with scheduler                                          |
+| `pylot serve install`            | Install as system service (launchd / systemd)                                   |
+| `pylot serve uninstall`          | Remove system service                                                           |
+| `pylot jobs list`                | List scheduled jobs                                                             |
+| `pylot jobs run <name>`          | Run a job immediately                                                           |
+| `pylot jobs enable <name>`       | Enable a job                                                                    |
+| `pylot jobs disable <name>`      | Disable a job                                                                   |
+| `pylot config list`              | Show current configuration                                                      |
+| `pylot config set <key> <value>` | Update a configuration value                                                    |
+| `pylot logs`                     | Tail agent logs (`--scheduler` for scheduler logs)                              |
 
 ---
 
@@ -357,25 +358,25 @@ Requires a [Twilio account](https://console.twilio.com/) with WhatsApp sandbox o
 
 OpenPylot supports publishing, deleting, and analytics for 17 social media platforms. Each platform auto-enables when credentials are detected.
 
-| Platform | Auth Method | Key Env Vars |
-|----------|-------------|-------------|
-| Twitter/X | OAuth 1.0a | `TWITTER_API_KEY`, `TWITTER_API_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_TOKEN_SECRET` |
-| LinkedIn | OAuth 2.0 | `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_PERSON_ID` |
-| Bluesky | App password | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD` |
-| Facebook | Page token | `FACEBOOK_ACCESS_TOKEN`, `FACEBOOK_PAGE_ID` |
-| Instagram | FB Graph API | `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_USER_ID` |
-| TikTok | OAuth 2.0 | `TIKTOK_ACCESS_TOKEN` |
-| YouTube | OAuth 2.0 | `YOUTUBE_ACCESS_TOKEN` |
-| Pinterest | OAuth 2.0 | `PINTEREST_ACCESS_TOKEN`, `PINTEREST_BOARD_ID` |
-| Reddit | OAuth 2.0 | `REDDIT_ACCESS_TOKEN`, `REDDIT_SUBREDDIT` |
-| Threads | Meta Graph API | `THREADS_ACCESS_TOKEN`, `THREADS_USER_ID` |
-| Mastodon | App token | `MASTODON_ACCESS_TOKEN`, `MASTODON_INSTANCE` |
-| Discord | Bot / webhook | `DISCORD_BOT_TOKEN`, `DISCORD_CHANNEL_ID` |
-| Slack | Bot token | `SLACK_BOT_TOKEN`, `SLACK_CHANNEL` |
-| Medium | Integration token | `MEDIUM_TOKEN` |
-| Dev.to | API key | `DEVTO_API_KEY` |
-| Hashnode | API key | `HASHNODE_API_KEY`, `HASHNODE_PUBLICATION_ID` |
-| WordPress | Basic auth | `WORDPRESS_SITE_URL`, `WORDPRESS_USERNAME`, `WORDPRESS_APP_PASSWORD` |
+| Platform  | Auth Method       | Key Env Vars                                                                                   |
+| --------- | ----------------- | ---------------------------------------------------------------------------------------------- |
+| Twitter/X | OAuth 1.0a        | `TWITTER_API_KEY`, `TWITTER_API_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_TOKEN_SECRET` |
+| LinkedIn  | OAuth 2.0         | `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_PERSON_ID`                                                  |
+| Bluesky   | App password      | `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`                                                       |
+| Facebook  | Page token        | `FACEBOOK_ACCESS_TOKEN`, `FACEBOOK_PAGE_ID`                                                    |
+| Instagram | FB Graph API      | `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_USER_ID`                                                  |
+| TikTok    | OAuth 2.0         | `TIKTOK_ACCESS_TOKEN`                                                                          |
+| YouTube   | OAuth 2.0         | `YOUTUBE_ACCESS_TOKEN`                                                                         |
+| Pinterest | OAuth 2.0         | `PINTEREST_ACCESS_TOKEN`, `PINTEREST_BOARD_ID`                                                 |
+| Reddit    | OAuth 2.0         | `REDDIT_ACCESS_TOKEN`, `REDDIT_SUBREDDIT`                                                      |
+| Threads   | Meta Graph API    | `THREADS_ACCESS_TOKEN`, `THREADS_USER_ID`                                                      |
+| Mastodon  | App token         | `MASTODON_ACCESS_TOKEN`, `MASTODON_INSTANCE`                                                   |
+| Discord   | Bot / webhook     | `DISCORD_BOT_TOKEN`, `DISCORD_CHANNEL_ID`                                                      |
+| Slack     | Bot token         | `SLACK_BOT_TOKEN`, `SLACK_CHANNEL`                                                             |
+| Medium    | Integration token | `MEDIUM_TOKEN`                                                                                 |
+| Dev.to    | API key           | `DEVTO_API_KEY`                                                                                |
+| Hashnode  | API key           | `HASHNODE_API_KEY`, `HASHNODE_PUBLICATION_ID`                                                  |
+| WordPress | Basic auth        | `WORDPRESS_SITE_URL`, `WORDPRESS_USERNAME`, `WORDPRESS_APP_PASSWORD`                           |
 
 See [docs/SOCIAL-PLATFORMS.md](docs/SOCIAL-PLATFORMS.md) for detailed per-platform setup guides.
 
@@ -413,6 +414,7 @@ triggers:
 ---
 
 When drafting emails:
+
 1. Ask for recipient, subject, and key points
 2. Use a professional tone unless told otherwise
 3. Keep paragraphs short
@@ -479,14 +481,14 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ### Pages
 
-| Page | Path | Description |
-|------|------|-------------|
-| **Home** | `/` | Landing page with quick links |
-| **Chat** | `/chat` | Real-time chat with the agent via WebSocket |
-| **Integrations** | `/setup` | Connect & disconnect services |
-| **Knowledge Base** | `/knowledge` | Manage documents, upload text, and search |
-| **Dashboard** | `/dashboard` | Agent status, scheduled jobs, recent logs |
-| **Settings** | `/settings` | Agent config, model selection, memory management |
+| Page               | Path         | Description                                      |
+| ------------------ | ------------ | ------------------------------------------------ |
+| **Home**           | `/`          | Landing page with quick links                    |
+| **Chat**           | `/chat`      | Real-time chat with the agent via WebSocket      |
+| **Integrations**   | `/setup`     | Connect & disconnect services                    |
+| **Knowledge Base** | `/knowledge` | Manage documents, upload text, and search        |
+| **Dashboard**      | `/dashboard` | Agent status, scheduled jobs, recent logs        |
+| **Settings**       | `/settings`  | Agent config, model selection, memory management |
 
 ### Connecting Integrations via the Web UI
 
@@ -510,15 +512,15 @@ cd frontend && npm run build   # Generates static files in frontend/out/
 
 ### Scheduled Jobs
 
-| Job | Default Schedule | Description |
-|-----|-----------------|-------------|
-| `reminder_check` | Every 1 min | Check and fire due reminders |
-| `rsvp_monitor` | Every 15 min | Detect RSVP changes on calendar events |
-| `meeting_reminder` | Every 5 min | Send upcoming meeting notifications |
-| `calendar_sync` | Every 30 min | Sync calendar events |
-| `token_refresh` | Every 45 min | Refresh OAuth tokens |
-| `daily_briefing` | 8:00 AM | Morning summary |
-| `email_digest` | 6:00 PM | Evening email digest |
+| Job                | Default Schedule | Description                            |
+| ------------------ | ---------------- | -------------------------------------- |
+| `reminder_check`   | Every 1 min      | Check and fire due reminders           |
+| `rsvp_monitor`     | Every 15 min     | Detect RSVP changes on calendar events |
+| `meeting_reminder` | Every 5 min      | Send upcoming meeting notifications    |
+| `calendar_sync`    | Every 30 min     | Sync calendar events                   |
+| `token_refresh`    | Every 45 min     | Refresh OAuth tokens                   |
+| `daily_briefing`   | 8:00 AM          | Morning summary                        |
+| `email_digest`     | 6:00 PM          | Evening email digest                   |
 
 ### Install as System Service
 
@@ -564,27 +566,27 @@ docker run --rm -it \
 
 The backend API (default `http://localhost:3001`) exposes:
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/status` | Agent status |
-| `GET` | `/api/integrations` | List integrations with vault status |
-| `POST` | `/api/integrations/{service}/connect` | Connect a service |
-| `DELETE` | `/api/integrations/{service}` | Disconnect |
-| `POST` | `/api/integrations/{service}/test` | Test connectivity |
-| `GET` | `/api/knowledge/collections` | List collections |
-| `POST` | `/api/knowledge/collections` | Create collection |
-| `GET` | `/api/knowledge/documents` | List documents |
-| `POST` | `/api/knowledge/documents` | Upload document |
-| `POST` | `/api/knowledge/search` | Search documents |
-| `GET` | `/api/jobs` | List scheduled jobs |
-| `PATCH` | `/api/jobs/{name}` | Update job (enable/disable) |
-| `POST` | `/api/jobs/{name}/run` | Run job immediately |
-| `GET` | `/api/settings` | Get settings |
-| `PATCH` | `/api/settings` | Update settings |
-| `GET` | `/api/memory` | List memory facts |
-| `GET` | `/api/logs` | Recent logs (`?level=`, `?limit=`) |
-| `WS` | `/ws/chat` | WebSocket for real-time chat |
-| `WS` | `/ws/notifications` | WebSocket for push notifications |
+| Method   | Endpoint                              | Description                         |
+| -------- | ------------------------------------- | ----------------------------------- |
+| `GET`    | `/api/status`                         | Agent status                        |
+| `GET`    | `/api/integrations`                   | List integrations with vault status |
+| `POST`   | `/api/integrations/{service}/connect` | Connect a service                   |
+| `DELETE` | `/api/integrations/{service}`         | Disconnect                          |
+| `POST`   | `/api/integrations/{service}/test`    | Test connectivity                   |
+| `GET`    | `/api/knowledge/collections`          | List collections                    |
+| `POST`   | `/api/knowledge/collections`          | Create collection                   |
+| `GET`    | `/api/knowledge/documents`            | List documents                      |
+| `POST`   | `/api/knowledge/documents`            | Upload document                     |
+| `POST`   | `/api/knowledge/search`               | Search documents                    |
+| `GET`    | `/api/jobs`                           | List scheduled jobs                 |
+| `PATCH`  | `/api/jobs/{name}`                    | Update job (enable/disable)         |
+| `POST`   | `/api/jobs/{name}/run`                | Run job immediately                 |
+| `GET`    | `/api/settings`                       | Get settings                        |
+| `PATCH`  | `/api/settings`                       | Update settings                     |
+| `GET`    | `/api/memory`                         | List memory facts                   |
+| `GET`    | `/api/logs`                           | Recent logs (`?level=`, `?limit=`)  |
+| `WS`     | `/ws/chat`                            | WebSocket for real-time chat        |
+| `WS`     | `/ws/notifications`                   | WebSocket for push notifications    |
 
 ---
 
@@ -597,7 +599,6 @@ The backend API (default `http://localhost:3001`) exposes:
 │   ├── agent.rs             # Agent loop: LLM ↔ tool calls
 │   ├── config.rs            # Layered config (env > vault > TOML > defaults)
 │   ├── context.rs           # Conversation context management
-│   ├── context_builder.rs   # Context building utilities
 │   ├── document_chunker.rs  # Document chunking for knowledge base
 │   ├── memory.rs            # Persistent memory store (JSON)
 │   ├── smart_memory.rs      # SQLite + embeddings semantic memory
@@ -720,13 +721,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commit conventions
 
 ## Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
-| "No LLM API key configured" | Run `pylot init` or set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` |
-| "Secrets file is corrupted" | Back up `~/.pylot/secrets.enc` and re-run `pylot init` |
-| Google OAuth fails | Ensure port 8085 is free (`lsof -i :8085`), or set `GOOGLE_REDIRECT_PORT` |
-| Binary not found (Python/Node) | The Rust binary must be on your `PATH` |
-| Debug logging | `RUST_LOG=debug pylot` |
+| Problem                        | Solution                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------- |
+| "No LLM API key configured"    | Run `pylot init` or set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`            |
+| "Secrets file is corrupted"    | Back up `~/.pylot/secrets.enc` and re-run `pylot init`                    |
+| Google OAuth fails             | Ensure port 8085 is free (`lsof -i :8085`), or set `GOOGLE_REDIRECT_PORT` |
+| Binary not found (Python/Node) | The Rust binary must be on your `PATH`                                    |
+| Debug logging                  | `RUST_LOG=debug pylot`                                                    |
 
 Run `pylot doctor` to diagnose issues automatically.
 
@@ -734,14 +735,24 @@ Run `pylot doctor` to diagnose issues automatically.
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [docs/INSTALLATION.md](docs/INSTALLATION.md) | Full installation guide (all methods) |
-| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Complete configuration reference |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture and module design |
-| [docs/SOCIAL-PLATFORMS.md](docs/SOCIAL-PLATFORMS.md) | Social media platform setup guides |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup and contribution guidelines |
-| [CHANGELOG.md](CHANGELOG.md) | Version history |
+Full docs live in [`docs/`](docs/README.md). Highlights:
+
+| Document                                             | Description                          |
+| ---------------------------------------------------- | ------------------------------------ |
+| [docs/README.md](docs/README.md)                     | Documentation index                  |
+| [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)   | 5-minute quickstart                  |
+| [docs/INSTALLATION.md](docs/INSTALLATION.md)         | Full installation guide              |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md)       | Configuration reference              |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)         | System architecture                  |
+| [docs/API.md](docs/API.md)                           | REST + WebSocket API reference       |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)             | Docker, systemd, production          |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)           | Build, test, contribute              |
+| [docs/SECURITY.md](docs/SECURITY.md)                 | Security model                       |
+| [docs/AGENTS.md](docs/AGENTS.md)                     | Sub-agents                           |
+| [docs/PLUGINS.md](docs/PLUGINS.md)                   | Plug-and-play skills & agent presets |
+| [docs/SOCIAL-PLATFORMS.md](docs/SOCIAL-PLATFORMS.md) | Social media platform setup          |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                   | Contribution guidelines              |
+| [CHANGELOG.md](CHANGELOG.md)                         | Version history                      |
 
 ---
 

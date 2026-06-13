@@ -49,13 +49,18 @@ All OAuth flows include a random `state` parameter that is validated on callback
 
 ## API Security
 
-### Local-Only by Default
+### Network Binding
 
-The API server binds to `localhost:3001` by default — not accessible from the network.
+By default the API server binds to `0.0.0.0:3001` so it is reachable from other devices on the same network (and from inside Docker). **This is convenient for development but unsafe to expose directly to the public internet** — there is currently no built-in authentication on the API.
+
+For production:
+
+- Put the API behind a reverse proxy that handles TLS + auth (see [DEPLOYMENT.md](./DEPLOYMENT.md)).
+- Or restrict the listen address with a firewall / Docker port-publish on `127.0.0.1:3001`.
 
 ### CORS
 
-CORS is configured to allow all origins for development. In production, restrict this via configuration.
+CORS is permissive (all origins) to make local web-dashboard development easy. Restrict it at the reverse proxy in production.
 
 ### Input Validation
 
@@ -99,7 +104,12 @@ Social media API calls respect platform rate limits. The SocialManager tracks AP
 ## Best Practices
 
 1. **Use the vault** — Don't store credentials in config files
-2. **Rotate tokens** — Use `pylot init` to refresh OAuth tokens periodically
+2. **Rotate tokens** — Use `pylot init --only <service>` to refresh OAuth tokens periodically
 3. **Review tool calls** — Enable `--approval` mode for sensitive environments
-4. **Keep updated** — Run `pylot update` to get security patches
-5. **Limit network access** — Keep the API server on localhost unless behind a reverse proxy
+4. **Keep updated** — Re-run the installer or `brew upgrade pylot` to get security patches
+5. **Limit network access** — Keep the API server on `127.0.0.1` or behind a reverse proxy with auth
+
+## See also
+
+- [DEPLOYMENT.md](./DEPLOYMENT.md) — hardening checklist, reverse-proxy config
+- [CONFIGURATION.md](./CONFIGURATION.md) — vault, env vars, secret resolution order

@@ -54,7 +54,14 @@ pub struct ConversationStore {
 impl ConversationStore {
     pub fn new(data_dir: &std::path::Path) -> Self {
         let dir = data_dir.join("conversations");
-        std::fs::create_dir_all(&dir).ok();
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            tracing::error!(
+                "ConversationStore: failed to create directory {}: {}. \
+                 Conversation history will NOT persist.",
+                dir.display(),
+                e
+            );
+        }
         Self { dir }
     }
 
@@ -85,10 +92,49 @@ impl ConversationStore {
     }
 
     /// Save a conversation (create or update).
+    ///
+    /// IMPORTANT: any I/O failure here is logged at ERROR level — historically
+    /// the error was swallowed, which silently broke conversation history when
+    /// the disk filled up (`ENOSPC`) or the data dir lost write permissions.
     pub fn save(&self, convo: &StoredConversation) {
         let path = self.dir.join(format!("{}.json", convo.id));
-        if let Ok(json) = serde_json::to_string_pretty(convo) {
-            let _ = std::fs::write(&path, json);
+        let json = match serde_json::to_string_pretty(convo) {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::error!(
+                    "ConversationStore: failed to serialize conversation {}: {}",
+                    convo.id,
+                    e
+                );
+                return;
+            }
+        };
+
+        // Atomic-ish write: write to a temp file in the same dir, then rename.
+        // This avoids leaving a half-written JSON file if the process is
+        // killed mid-write, which would corrupt the conversation on next load.
+        let tmp = self.dir.join(format!("{}.json.tmp", convo.id));
+        if let Err(e) = std::fs::write(&tmp, &json) {
+            tracing::error!(
+                "ConversationStore: failed to write {} ({}). \
+                 Conversation history will NOT persist this turn. \
+                 Most common cause: disk full (run `df -h /`) or no write \
+                 permission on the data dir.",
+                tmp.display(),
+                e
+            );
+            // Best-effort cleanup of the partial temp file.
+            let _ = std::fs::remove_file(&tmp);
+            return;
+        }
+        if let Err(e) = std::fs::rename(&tmp, &path) {
+            tracing::error!(
+                "ConversationStore: failed to rename {} -> {}: {}",
+                tmp.display(),
+                path.display(),
+                e
+            );
+            let _ = std::fs::remove_file(&tmp);
         }
     }
 
@@ -254,12 +300,27 @@ pub fn api_router(state: ApiState, frontend_dir: Option<PathBuf>) -> Router {
         // Social
         .route("/social/posts", get(handlers::list_social_posts))
         .route("/social/posts", post(handlers::create_social_post))
-        .route("/social/posts/{id}/publish", post(handlers::publish_social_post))
+        .route(
+            "/social/posts/{id}",
+            axum::routing::delete(handlers::delete_social_post),
+        )
+        .route(
+            "/social/posts/{id}/publish",
+            post(handlers::publish_social_post),
+        )
+        .route("/social/improve-post", post(handlers::improve_social_post))
+        .route("/social/upload", post(handlers::upload_social_media))
         .route("/social/campaigns", get(handlers::list_campaigns))
         .route("/social/campaigns", post(handlers::create_campaign))
         .route("/social/platforms", get(handlers::list_social_platforms))
-        .route("/social/connect/{platform}", post(handlers::connect_social_platform))
-        .route("/social/disconnect/{platform}", post(handlers::disconnect_social_platform))
+        .route(
+            "/social/connect/{platform}",
+            post(handlers::connect_social_platform),
+        )
+        .route(
+            "/social/disconnect/{platform}",
+            post(handlers::disconnect_social_platform),
+        )
         // Sub-agents
         .route("/agents", get(handlers::list_sub_agents))
         .route("/agents", post(handlers::spawn_sub_agent))
@@ -269,7 +330,10 @@ pub fn api_router(state: ApiState, frontend_dir: Option<PathBuf>) -> Router {
         .route("/agents/{id}", delete(handlers::cancel_sub_agent))
         .route("/agents/{id}/runs", get(handlers::list_sub_agent_runs))
         .route("/agents/{id}/runs", delete(handlers::clear_sub_agent_runs))
-        .route("/agents/{id}/permanent", delete(handlers::delete_sub_agent_permanent))
+        .route(
+            "/agents/{id}/permanent",
+            delete(handlers::delete_sub_agent_permanent),
+        )
         // Memory v2
         .route("/memory/v2/search", post(handlers::memory_v2_search))
         .route("/memory/v2/units", get(handlers::memory_v2_list))
@@ -283,9 +347,17 @@ pub fn api_router(state: ApiState, frontend_dir: Option<PathBuf>) -> Router {
     // Set body size limit to 100MB for large file uploads
     let body_limit = DefaultBodyLimit::max(100 * 1024 * 1024); // 100MB
 
+    // Static serving for user-uploaded media (images, PDFs) used in social posts.
+    // The directory is created lazily by the upload handler; we pre-create here
+    // so ServeDir doesn't 404 on first request.
+    let uploads_dir = state.config.data_dir.join("uploads");
+    let _ = std::fs::create_dir_all(&uploads_dir);
+    let uploads_service = ServeDir::new(&uploads_dir);
+
     let mut app = Router::new()
         .nest("/api", api_routes)
         .nest("/ws", ws_routes)
+        .nest_service("/uploads", uploads_service)
         .with_state(state)
         .layer(cors)
         .layer(body_limit);

@@ -142,14 +142,14 @@ impl AgentOrchestrator {
                     // Always record the run (even one-shot agents get a Run #1
                     // entry in the panel).
                     let run_number = if let Some(ref store) = store_ref {
-                        let _ = store.set_result(&agent_id, output);
-                        store.append_run(&agent_id, output).unwrap_or(1)
+                        let _ = store.set_result(&agent_id, &output);
+                        store.append_run(&agent_id, &output).unwrap_or(1)
                     } else {
                         1
                     };
 
-                    // Inject SHORT notification only — full output lives in the
-                    // sub-agent panel, not the chat window.
+                    // Post the FULL output to chat so the user can read it
+                    // directly without switching panels.
                     if let (Some(ref convos), Some(ref cid)) = (&conversations_ref, &conv_id) {
                         convos.add_message(
                             cid,
@@ -157,13 +157,13 @@ impl AgentOrchestrator {
                                 id: uuid::Uuid::new_v4().to_string(),
                                 role: "assistant".into(),
                                 content: format!(
-                                    "✅ {agent_name} Run #{run_number} complete — see Sub-Agent panel for full output"
+                                    "✅ **{agent_name}** (Run #{run_number}) completed:\n\n{output}"
                                 ),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
                             },
                         );
                         tracing::info!(
-                            "Sub-agent '{}' run #{} completed; notification posted to conversation {}",
+                            "Sub-agent '{}' run #{} completed; full output posted to conversation {}",
                             agent_name,
                             run_number,
                             cid
@@ -292,9 +292,24 @@ impl AgentOrchestrator {
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
             let mut iteration: u64 = 0;
 
+            tracing::info!(
+                "Recurring sub-agent '{}' (id={}) loop started: interval={}s, timeout={}s, max_iters={}, conv_id={:?}",
+                agent_name, agent_id, interval_secs, timeout, max_iters, conv_id
+            );
+
             loop {
+                tracing::debug!(
+                    "Recurring sub-agent '{}' awaiting next tick (iter so far: {})",
+                    agent_name,
+                    iteration
+                );
                 ticker.tick().await;
                 iteration += 1;
+                tracing::info!(
+                    "Recurring sub-agent '{}' tick #{} fired — starting iteration",
+                    agent_name,
+                    iteration
+                );
 
                 // Build a fresh tools+skills set for this iteration.
                 let (tools, skills) = factory();
@@ -327,9 +342,8 @@ impl AgentOrchestrator {
                             }
                         }
 
-                        // Persist the run to its own history row, then post a
-                        // SHORT notification to chat — the full output stays
-                        // in the Sub-Agent panel.
+                        // Persist the run to its own history row, then post the
+                        // full output to chat so the user sees it immediately.
                         let run_number = if let Some(ref store) = store_ref {
                             store
                                 .append_run(&agent_id, &output)
@@ -345,7 +359,7 @@ impl AgentOrchestrator {
                                     id: uuid::Uuid::new_v4().to_string(),
                                     role: "assistant".into(),
                                     content: format!(
-                                        "✅ {agent_name} Run #{run_number} complete — see Sub-Agent panel for full output"
+                                        "✅ **{agent_name}** (Run #{run_number}) completed:\n\n{output}"
                                     ),
                                     timestamp: chrono::Utc::now().to_rfc3339(),
                                 },
@@ -383,6 +397,12 @@ impl AgentOrchestrator {
                         );
                     }
                 }
+                tracing::debug!(
+                    "Recurring sub-agent '{}' end of iteration #{} — next tick in ~{}s",
+                    agent_name,
+                    iteration,
+                    interval_secs
+                );
                 // Loop continues; only `handle.abort()` (cancel) ends it.
             }
         });
@@ -466,6 +486,7 @@ impl AgentOrchestrator {
                             config: SubAgentConfig {
                                 id: p.id,
                                 name: p.name,
+                                interval_secs: p.interval_secs,
                                 ..Default::default()
                             },
                             status: match p.status.as_str() {
@@ -531,8 +552,17 @@ async fn run_sub_agent(
 ) -> Result<String> {
     let system_prompt = if config.system_prompt.is_empty() {
         format!(
-            "You are a sub-agent named '{}'. Complete the assigned task and return a clear result.",
-            config.name
+            "You are a sub-agent named '{name}'. Complete the assigned task thoroughly.\n\n\
+             CRITICAL OUTPUT RULES — you MUST follow these every single run:\n\
+             1. Do all your work (research, writing, analysis, etc.) first.\n\
+             2. Your FINAL response MUST contain the COMPLETE, FULL content you produced.\n\
+             3. Do NOT just say \"I created a note\" or \"I saved the result\" — \
+                reproduce the ENTIRE output in your reply so it appears in the Run History panel.\n\
+             4. If you wrote an article, include the full article text.\n\
+             5. If you researched a topic, include all findings, facts, and sources.\n\
+             6. Tools like create_note or write_file are optional side-effects. \
+                The run result is ALWAYS your final text reply — make it complete.",
+            name = config.name
         )
     } else {
         config.system_prompt
@@ -550,7 +580,16 @@ async fn run_sub_agent(
     )?;
     agent.set_quiet_mode(true);
 
-    agent.chat(&task_message).await
+    // Wrap the task so the agent always ends with the full content in its reply,
+    // not just a tool-call confirmation.
+    let wrapped_task = format!(
+        "{task_message}\n\n\
+         REMEMBER: Your final reply must contain the COMPLETE output (full article, \
+         full research findings, full analysis, etc.) — not just \"Done\" or \
+         \"I created a note\". The run panel shows your final text, so include everything."
+    );
+
+    agent.chat(&wrapped_task).await
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@ pub mod memory_tools;
 pub mod notes;
 pub mod reminder;
 pub mod search;
+pub mod social;
 pub mod spawn_agent;
 pub mod telegram;
 pub mod web;

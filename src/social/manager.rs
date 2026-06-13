@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS social_posts (
     content TEXT NOT NULL,
     content_type TEXT NOT NULL DEFAULT 'text',
     title TEXT,
+    media_urls TEXT NOT NULL DEFAULT '[]',
     hashtags TEXT DEFAULT '[]',
     status TEXT NOT NULL DEFAULT 'draft',
     campaign_id TEXT,
@@ -54,6 +55,14 @@ impl SocialManager {
         conn.execute_batch(SOCIAL_SCHEMA)
             .map_err(|e| format!("Failed to create social schema: {e}"))?;
 
+        // Migration: add media_urls column to existing DBs that predate it.
+        // SQLite has no IF NOT EXISTS for ADD COLUMN, so we ignore the error
+        // if the column already exists.
+        let _ = conn.execute(
+            "ALTER TABLE social_posts ADD COLUMN media_urls TEXT NOT NULL DEFAULT '[]'",
+            [],
+        );
+
         let mut mgr = Self {
             providers: HashMap::new(),
             posts: Vec::new(),
@@ -71,30 +80,32 @@ impl SocialManager {
             if let Ok(conn) = db.lock() {
                 // Load posts
                 if let Ok(mut stmt) = conn.prepare(
-                    "SELECT id, platform, content, content_type, title, hashtags, status, campaign_id, platform_post_id, scheduled_at, published_at FROM social_posts ORDER BY created_at DESC"
+                    "SELECT id, platform, content, content_type, title, media_urls, hashtags, status, campaign_id, platform_post_id, scheduled_at, published_at FROM social_posts ORDER BY created_at DESC"
                 ) {
                     if let Ok(rows) = stmt.query_map([], |row| {
                         let platform_str: String = row.get(1)?;
-                        let hashtags_json: String = row.get(5)?;
-                        let status_str: String = row.get(6)?;
+                        let content_type_str: String = row.get(3)?;
+                        let media_urls_json: String = row.get(5)?;
+                        let hashtags_json: String = row.get(6)?;
+                        let status_str: String = row.get(7)?;
                         Ok(SocialPost {
                             id: row.get(0)?,
                             platform: Platform::from_str(&platform_str).unwrap_or(Platform::Twitter),
                             content: row.get(2)?,
-                            content_type: ContentType::Text,
+                            content_type: ContentType::from_str(&content_type_str),
                             title: row.get(4)?,
-                            media_urls: vec![],
+                            media_urls: serde_json::from_str(&media_urls_json).unwrap_or_default(),
                             hashtags: serde_json::from_str(&hashtags_json).unwrap_or_default(),
-                            scheduled_at: row.get::<_, Option<String>>(9)?.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&Utc))),
-                            published_at: row.get::<_, Option<String>>(10)?.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&Utc))),
+                            scheduled_at: row.get::<_, Option<String>>(10)?.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&Utc))),
+                            published_at: row.get::<_, Option<String>>(11)?.and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&Utc))),
                             status: match status_str.as_str() {
                                 "published" => PostStatus::Published,
                                 "scheduled" => PostStatus::Scheduled,
                                 "failed" => PostStatus::Failed,
                                 _ => PostStatus::Draft,
                             },
-                            campaign_id: row.get(7)?,
-                            platform_post_id: row.get(8)?,
+                            campaign_id: row.get(8)?,
+                            platform_post_id: row.get(9)?,
                             extra: HashMap::new(),
                         })
                     }) {
@@ -137,20 +148,33 @@ impl SocialManager {
 
     fn persist_post(&self, post: &SocialPost) {
         if let Some(ref db) = self.db {
+            tracing::info!(
+                id = %post.id,
+                content_type = %post.content_type.as_str(),
+                media_urls_count = post.media_urls.len(),
+                "persist_post called"
+            );
             if let Ok(conn) = db.lock() {
-                let _ = conn.execute(
-                    "INSERT OR REPLACE INTO social_posts (id, platform, content, hashtags, status, campaign_id, platform_post_id, published_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                let result = conn.execute(
+                    "INSERT OR REPLACE INTO social_posts (id, platform, content, content_type, title, media_urls, hashtags, status, campaign_id, platform_post_id, scheduled_at, published_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                     rusqlite::params![
                         post.id,
                         post.platform.to_string(),
                         post.content,
-                        serde_json::to_string(&post.hashtags).unwrap_or_default(),
+                        post.content_type.as_str(),
+                        post.title,
+                        serde_json::to_string(&post.media_urls).unwrap_or_else(|_| "[]".to_string()),
+                        serde_json::to_string(&post.hashtags).unwrap_or_else(|_| "[]".to_string()),
                         format!("{:?}", post.status).to_lowercase(),
                         post.campaign_id,
                         post.platform_post_id,
+                        post.scheduled_at.map(|d| d.to_rfc3339()),
                         post.published_at.map(|d| d.to_rfc3339()),
                     ],
                 );
+                if let Err(e) = result {
+                    tracing::error!(post_id = %post.id, error = %e, "failed to persist social post");
+                }
             }
         }
     }
@@ -192,27 +216,50 @@ impl SocialManager {
         hashtags: Vec<String>,
         campaign_id: Option<String>,
     ) -> String {
+        self.create_post_with_media(
+            platform,
+            content,
+            hashtags,
+            campaign_id,
+            ContentType::Text,
+            None,
+            vec![],
+        )
+    }
+
+    /// Create a draft post with media attachments and explicit content type.
+    /// Use this for image posts, document/PDF posts, video posts, etc.
+    pub fn create_post_with_media(
+        &mut self,
+        platform: Platform,
+        content: &str,
+        hashtags: Vec<String>,
+        campaign_id: Option<String>,
+        content_type: ContentType,
+        title: Option<String>,
+        media_urls: Vec<String>,
+    ) -> String {
         let id = uuid::Uuid::new_v4().to_string();
 
-        // Enforce content limit if provider exists
+        // Enforce content limit if provider exists (char-safe to avoid splitting UTF-8).
         let content = if let Some(provider) = self.providers.get(&platform) {
             let limit = provider.content_limit();
-            if content.len() > limit {
-                &content[..limit]
+            if content.chars().count() > limit {
+                content.chars().take(limit).collect::<String>()
             } else {
-                content
+                content.to_string()
             }
         } else {
-            content
+            content.to_string()
         };
 
         let post = SocialPost {
             id: id.clone(),
             platform,
-            content: content.to_string(),
-            content_type: ContentType::Text,
-            title: None,
-            media_urls: vec![],
+            content,
+            content_type,
+            title,
+            media_urls,
             hashtags,
             scheduled_at: None,
             published_at: None,
@@ -303,6 +350,26 @@ impl SocialManager {
             .iter()
             .filter(|p| p.campaign_id.as_deref() == Some(campaign_id))
             .collect()
+    }
+
+    /// Delete a post by ID (removes from memory and DB).
+    pub fn delete_post(&mut self, post_id: &str) -> bool {
+        let before = self.posts.len();
+        self.posts.retain(|p| p.id != post_id);
+        let removed = self.posts.len() < before;
+
+        if removed {
+            if let Some(ref db) = self.db {
+                if let Ok(conn) = db.lock() {
+                    let _ = conn.execute(
+                        "DELETE FROM social_posts WHERE id = ?1",
+                        rusqlite::params![post_id],
+                    );
+                }
+            }
+        }
+
+        removed
     }
 }
 

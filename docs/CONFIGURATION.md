@@ -2,14 +2,16 @@
 
 Complete reference for all configuration options. OpenPylot uses a layered configuration system where higher-priority sources override lower ones.
 
+> For installation see [INSTALLATION.md](./INSTALLATION.md). For how secrets are encrypted at rest see [SECURITY.md](./SECURITY.md). For per-platform social-media credential setup see [SOCIAL-PLATFORMS.md](./SOCIAL-PLATFORMS.md).
+
 ## Configuration Priority
 
-| Priority | Source | Notes |
-|----------|--------|-------|
-| 1 (highest) | Environment variables | Best for CI/CD and Docker |
-| 2 | Encrypted secrets vault | `~/.pylot/secrets.enc` — for API keys and tokens |
-| 3 | TOML config files | `config/default.toml` or `~/.pylot/config.toml` |
-| 4 (lowest) | Built-in defaults | Hardcoded in `config.rs` |
+| Priority    | Source                  | Notes                                            |
+| ----------- | ----------------------- | ------------------------------------------------ |
+| 1 (highest) | Environment variables   | Best for CI/CD and Docker                        |
+| 2           | Encrypted secrets vault | `~/.pylot/secrets.enc` — for API keys and tokens |
+| 3           | TOML config files       | `config/default.toml` or `~/.pylot/config.toml`  |
+| 4 (lowest)  | Built-in defaults       | Hardcoded in `config.rs`                         |
 
 ---
 
@@ -153,184 +155,184 @@ All configuration values can be overridden via environment variables.
 
 ### Core
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OPENAI_API_KEY` | OpenAI API key | — |
-| `ANTHROPIC_API_KEY` | Anthropic API key | — |
-| `LLM_PROVIDER` | LLM provider (`openai` / `anthropic`) | `openai` |
-| `LLM_MODEL` | Model name | `gpt-4o` |
-| `LLM_MAX_TOKENS` | Max output tokens | `4096` |
-| `LLM_TEMPERATURE` | Sampling temperature | `0.6` |
-| `AGENT_NAME` | Agent display name | `Pylot` |
-| `AGENT_PERSONA` | System persona description | `helpful, concise, professional` |
-| `DATA_DIR` | Data directory | `~/.pylot/data` |
-| `RUST_LOG` | Log level (`error`, `warn`, `info`, `debug`, `trace`) | `info` |
+| Variable            | Description                                           | Default                          |
+| ------------------- | ----------------------------------------------------- | -------------------------------- |
+| `OPENAI_API_KEY`    | OpenAI API key                                        | —                                |
+| `ANTHROPIC_API_KEY` | Anthropic API key                                     | —                                |
+| `LLM_PROVIDER`      | LLM provider (`openai` / `anthropic`)                 | `openai`                         |
+| `LLM_MODEL`         | Model name                                            | `gpt-4o`                         |
+| `LLM_MAX_TOKENS`    | Max output tokens                                     | `4096`                           |
+| `LLM_TEMPERATURE`   | Sampling temperature                                  | `0.6`                            |
+| `AGENT_NAME`        | Agent display name                                    | `Pylot`                          |
+| `AGENT_PERSONA`     | System persona description                            | `helpful, concise, professional` |
+| `DATA_DIR`          | Data directory                                        | `~/.pylot/data`                  |
+| `RUST_LOG`          | Log level (`error`, `warn`, `info`, `debug`, `trace`) | `info`                           |
 
 ### Google Calendar & Gmail
 
-| Variable | Description |
-|----------|-------------|
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
-| `GOOGLE_REDIRECT_PORT` | Local redirect port (default: `8085`) |
-| `GMAIL_ENABLED` | Enable Gmail integration (`true`/`false`) |
+| Variable               | Description                               |
+| ---------------------- | ----------------------------------------- |
+| `GOOGLE_CLIENT_ID`     | Google OAuth client ID                    |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret                |
+| `GOOGLE_REDIRECT_PORT` | Local redirect port (default: `8085`)     |
+| `GMAIL_ENABLED`        | Enable Gmail integration (`true`/`false`) |
 
 ### Telegram
 
-| Variable | Description |
-|----------|-------------|
+| Variable             | Description                        |
+| -------------------- | ---------------------------------- |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token from @BotFather |
-| `TELEGRAM_CHAT_ID` | Default chat ID for notifications |
+| `TELEGRAM_CHAT_ID`   | Default chat ID for notifications  |
 
 ### WhatsApp (Twilio)
 
-| Variable | Description |
-|----------|-------------|
-| `TWILIO_ACCOUNT_SID` | Twilio account SID |
-| `TWILIO_AUTH_TOKEN` | Twilio auth token |
+| Variable               | Description                   |
+| ---------------------- | ----------------------------- |
+| `TWILIO_ACCOUNT_SID`   | Twilio account SID            |
+| `TWILIO_AUTH_TOKEN`    | Twilio auth token             |
 | `TWILIO_WHATSAPP_FROM` | Twilio WhatsApp sender number |
-| `WHATSAPP_TO` | Default recipient number |
+| `WHATSAPP_TO`          | Default recipient number      |
 
 ### Social Media Platforms
 
 #### Twitter/X
 
-| Variable | Description |
-|----------|-------------|
-| `TWITTER_API_KEY` | Twitter API key (consumer key) |
-| `TWITTER_API_SECRET` | Twitter API secret (consumer secret) |
-| `TWITTER_ACCESS_TOKEN` | OAuth access token |
-| `TWITTER_ACCESS_TOKEN_SECRET` | OAuth access token secret |
+| Variable                      | Description                          |
+| ----------------------------- | ------------------------------------ |
+| `TWITTER_API_KEY`             | Twitter API key (consumer key)       |
+| `TWITTER_API_SECRET`          | Twitter API secret (consumer secret) |
+| `TWITTER_ACCESS_TOKEN`        | OAuth access token                   |
+| `TWITTER_ACCESS_TOKEN_SECRET` | OAuth access token secret            |
 
 #### LinkedIn
 
-| Variable | Description |
-|----------|-------------|
-| `LINKEDIN_ACCESS_TOKEN` | LinkedIn OAuth 2.0 access token |
-| `LINKEDIN_PERSON_ID` | LinkedIn person URN (e.g., `urn:li:person:ABC123`) |
+| Variable                | Description                                        |
+| ----------------------- | -------------------------------------------------- |
+| `LINKEDIN_ACCESS_TOKEN` | LinkedIn OAuth 2.0 access token                    |
+| `LINKEDIN_PERSON_ID`    | LinkedIn person URN (e.g., `urn:li:person:ABC123`) |
 
 #### Bluesky
 
-| Variable | Description |
-|----------|-------------|
-| `BLUESKY_HANDLE` | Bluesky handle (e.g., `user.bsky.social`) |
-| `BLUESKY_APP_PASSWORD` | Bluesky app password |
+| Variable               | Description                               |
+| ---------------------- | ----------------------------------------- |
+| `BLUESKY_HANDLE`       | Bluesky handle (e.g., `user.bsky.social`) |
+| `BLUESKY_APP_PASSWORD` | Bluesky app password                      |
 
 #### Facebook
 
-| Variable | Description |
-|----------|-------------|
+| Variable                | Description                |
+| ----------------------- | -------------------------- |
 | `FACEBOOK_ACCESS_TOKEN` | Facebook page access token |
-| `FACEBOOK_PAGE_ID` | Facebook page ID |
+| `FACEBOOK_PAGE_ID`      | Facebook page ID           |
 
 #### Instagram
 
-| Variable | Description |
-|----------|-------------|
+| Variable                 | Description                                         |
+| ------------------------ | --------------------------------------------------- |
 | `INSTAGRAM_ACCESS_TOKEN` | Instagram API access token (via Facebook Graph API) |
-| `INSTAGRAM_USER_ID` | Instagram business account user ID |
+| `INSTAGRAM_USER_ID`      | Instagram business account user ID                  |
 
 #### TikTok
 
-| Variable | Description |
-|----------|-------------|
+| Variable              | Description                   |
+| --------------------- | ----------------------------- |
 | `TIKTOK_ACCESS_TOKEN` | TikTok OAuth 2.0 access token |
 
 #### YouTube
 
-| Variable | Description |
-|----------|-------------|
+| Variable               | Description                    |
+| ---------------------- | ------------------------------ |
 | `YOUTUBE_ACCESS_TOKEN` | YouTube OAuth 2.0 access token |
 
 #### Pinterest
 
-| Variable | Description |
-|----------|-------------|
-| `PINTEREST_ACCESS_TOKEN` | Pinterest OAuth 2.0 access token |
-| `PINTEREST_BOARD_ID` | Pinterest board ID for publishing |
+| Variable                 | Description                       |
+| ------------------------ | --------------------------------- |
+| `PINTEREST_ACCESS_TOKEN` | Pinterest OAuth 2.0 access token  |
+| `PINTEREST_BOARD_ID`     | Pinterest board ID for publishing |
 
 #### Reddit
 
-| Variable | Description |
-|----------|-------------|
+| Variable              | Description                   |
+| --------------------- | ----------------------------- |
 | `REDDIT_ACCESS_TOKEN` | Reddit OAuth 2.0 access token |
-| `REDDIT_SUBREDDIT` | Default subreddit for posting |
+| `REDDIT_SUBREDDIT`    | Default subreddit for posting |
 
 #### Threads
 
-| Variable | Description |
-|----------|-------------|
+| Variable               | Description                               |
+| ---------------------- | ----------------------------------------- |
 | `THREADS_ACCESS_TOKEN` | Threads API access token (Meta Graph API) |
-| `THREADS_USER_ID` | Threads user ID |
+| `THREADS_USER_ID`      | Threads user ID                           |
 
 #### Mastodon
 
-| Variable | Description |
-|----------|-------------|
-| `MASTODON_ACCESS_TOKEN` | Mastodon application access token |
-| `MASTODON_INSTANCE` | Mastodon instance URL (e.g., `https://mastodon.social`) |
+| Variable                | Description                                             |
+| ----------------------- | ------------------------------------------------------- |
+| `MASTODON_ACCESS_TOKEN` | Mastodon application access token                       |
+| `MASTODON_INSTANCE`     | Mastodon instance URL (e.g., `https://mastodon.social`) |
 
 #### Discord
 
-| Variable | Description |
-|----------|-------------|
-| `DISCORD_BOT_TOKEN` | Discord bot token |
+| Variable             | Description                |
+| -------------------- | -------------------------- |
+| `DISCORD_BOT_TOKEN`  | Discord bot token          |
 | `DISCORD_CHANNEL_ID` | Default Discord channel ID |
 
 #### Slack
 
-| Variable | Description |
-|----------|-------------|
+| Variable          | Description                  |
+| ----------------- | ---------------------------- |
 | `SLACK_BOT_TOKEN` | Slack bot token (`xoxb-...`) |
-| `SLACK_CHANNEL` | Default Slack channel |
+| `SLACK_CHANNEL`   | Default Slack channel        |
 
 #### Medium
 
-| Variable | Description |
-|----------|-------------|
+| Variable       | Description              |
+| -------------- | ------------------------ |
 | `MEDIUM_TOKEN` | Medium integration token |
 
 #### Dev.to
 
-| Variable | Description |
-|----------|-------------|
+| Variable        | Description    |
+| --------------- | -------------- |
 | `DEVTO_API_KEY` | Dev.to API key |
 
 #### Hashnode
 
-| Variable | Description |
-|----------|-------------|
-| `HASHNODE_API_KEY` | Hashnode API key |
+| Variable                  | Description             |
+| ------------------------- | ----------------------- |
+| `HASHNODE_API_KEY`        | Hashnode API key        |
 | `HASHNODE_PUBLICATION_ID` | Hashnode publication ID |
 
 #### WordPress
 
-| Variable | Description |
-|----------|-------------|
-| `WORDPRESS_SITE_URL` | WordPress site URL (e.g., `https://example.com`) |
-| `WORDPRESS_USERNAME` | WordPress username |
-| `WORDPRESS_APP_PASSWORD` | WordPress application password |
+| Variable                 | Description                                      |
+| ------------------------ | ------------------------------------------------ |
+| `WORDPRESS_SITE_URL`     | WordPress site URL (e.g., `https://example.com`) |
+| `WORDPRESS_USERNAME`     | WordPress username                               |
+| `WORDPRESS_APP_PASSWORD` | WordPress application password                   |
 
 ### MCP
 
-| Variable | Description |
-|----------|-------------|
-| `MCP_ENABLED` | Enable MCP (`true`/`false`) |
+| Variable          | Description                    |
+| ----------------- | ------------------------------ |
+| `MCP_ENABLED`     | Enable MCP (`true`/`false`)    |
 | `MCP_CONFIG_PATH` | Path to MCP server config JSON |
 
 ### Learning
 
-| Variable | Description |
-|----------|-------------|
-| `LEARNING_ENABLED` | Enable learning engine (`true`/`false`) |
-| `LEARNING_AUTO_SCORE` | Enable LLM-as-judge auto-scoring |
-| `LEARNING_JUDGE_VOTES` | Number of judge votes |
-| `LEARNING_SKILL_EVOLUTION` | Enable skill evolution from failures |
+| Variable                   | Description                             |
+| -------------------------- | --------------------------------------- |
+| `LEARNING_ENABLED`         | Enable learning engine (`true`/`false`) |
+| `LEARNING_AUTO_SCORE`      | Enable LLM-as-judge auto-scoring        |
+| `LEARNING_JUDGE_VOTES`     | Number of judge votes                   |
+| `LEARNING_SKILL_EVOLUTION` | Enable skill evolution from failures    |
 
 ### Marketing
 
-| Variable | Description |
-|----------|-------------|
+| Variable            | Description                             |
+| ------------------- | --------------------------------------- |
 | `MARKETING_ENABLED` | Enable marketing agent (`true`/`false`) |
 
 ---
@@ -364,10 +366,10 @@ pylot init --reset
 
 ### Vault vs Environment Variables
 
-| Approach | When to Use |
-|----------|-------------|
-| Vault | Personal machines, long-lived credentials |
-| Env vars | CI/CD, Docker, ephemeral environments |
-| Both | Env vars override vault values |
+| Approach | When to Use                               |
+| -------- | ----------------------------------------- |
+| Vault    | Personal machines, long-lived credentials |
+| Env vars | CI/CD, Docker, ephemeral environments     |
+| Both     | Env vars override vault values            |
 
 When both are present, environment variables take precedence over vault values. This lets you override specific credentials in Docker or CI without modifying the vault.

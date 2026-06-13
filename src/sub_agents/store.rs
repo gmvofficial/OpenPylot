@@ -38,11 +38,16 @@ impl SubAgentStore {
                 completed_at    TEXT,
                 created_at      TEXT NOT NULL DEFAULT (datetime('now')),
                 timeout_secs    INTEGER NOT NULL DEFAULT 300,
-                max_iterations  INTEGER NOT NULL DEFAULT 10
+                max_iterations  INTEGER NOT NULL DEFAULT 10,
+                interval_secs   INTEGER
             );
 
             CREATE INDEX IF NOT EXISTS idx_sub_agents_status ON sub_agents(status);
             CREATE INDEX IF NOT EXISTS idx_sub_agents_created ON sub_agents(created_at DESC);
+
+            -- Migration: add interval_secs column for pre-existing DBs that
+            -- were created before recurring agents were persisted. Ignored if
+            -- the column already exists (SQLite returns an error we swallow).
 
             -- Per-run history: every execution of a sub-agent appends a row here.
             -- Never overwritten, only cleared explicitly by the user.
@@ -58,6 +63,12 @@ impl SubAgentStore {
             CREATE INDEX IF NOT EXISTS idx_sub_agent_runs_agent
                 ON sub_agent_runs(sub_agent_id, run_number DESC);",
         )?;
+        // Best-effort column migration for older DBs that pre-date the
+        // `interval_secs` column. Ignore the error if it already exists.
+        let _ = conn.execute(
+            "ALTER TABLE sub_agents ADD COLUMN interval_secs INTEGER",
+            [],
+        );
         Ok(())
     }
 
@@ -134,8 +145,8 @@ impl SubAgentStore {
     ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO sub_agents (id, name, agent_type, system_prompt, status, task, conversation_id, timeout_secs, max_iterations)
-             VALUES (?1, ?2, ?3, ?4, 'Pending', ?5, ?6, ?7, ?8)",
+            "INSERT INTO sub_agents (id, name, agent_type, system_prompt, status, task, conversation_id, timeout_secs, max_iterations, interval_secs)
+             VALUES (?1, ?2, ?3, ?4, 'Pending', ?5, ?6, ?7, ?8, ?9)",
             params![
                 config.id,
                 config.name,
@@ -145,6 +156,7 @@ impl SubAgentStore {
                 conversation_id,
                 config.timeout_secs,
                 config.max_iterations,
+                config.interval_secs.map(|v| v as i64),
             ],
         )?;
         Ok(())
@@ -190,7 +202,7 @@ impl SubAgentStore {
     pub fn list(&self, limit: usize) -> Result<Vec<StoredSubAgent>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, agent_type, status, task, result, error, conversation_id, started_at, completed_at, created_at
+            "SELECT id, name, agent_type, status, task, result, error, conversation_id, started_at, completed_at, created_at, interval_secs
              FROM sub_agents ORDER BY created_at DESC LIMIT ?1",
         )?;
         let rows = stmt.query_map(params![limit], |row| {
@@ -206,6 +218,7 @@ impl SubAgentStore {
                 started_at: row.get(8)?,
                 completed_at: row.get(9)?,
                 created_at: row.get(10)?,
+                interval_secs: row.get::<_, Option<i64>>(11)?.map(|v| v as u64),
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -215,7 +228,7 @@ impl SubAgentStore {
     pub fn get(&self, id: &str) -> Result<Option<StoredSubAgent>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, agent_type, status, task, result, error, conversation_id, started_at, completed_at, created_at
+            "SELECT id, name, agent_type, status, task, result, error, conversation_id, started_at, completed_at, created_at, interval_secs
              FROM sub_agents WHERE id = ?1",
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
@@ -231,6 +244,7 @@ impl SubAgentStore {
                 started_at: row.get(8)?,
                 completed_at: row.get(9)?,
                 created_at: row.get(10)?,
+                interval_secs: row.get::<_, Option<i64>>(11)?.map(|v| v as u64),
             })
         })?;
         match rows.next() {
@@ -264,4 +278,8 @@ pub struct StoredSubAgent {
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
     pub created_at: String,
+    /// If `Some(n)`, this was a recurring agent with `n`-second interval.
+    /// Used by the orchestrator to display recurring agents correctly after
+    /// the in-memory state is lost (e.g. server restart).
+    pub interval_secs: Option<u64>,
 }

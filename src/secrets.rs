@@ -31,6 +31,15 @@ pub struct SecretsData {
     pub twilio: TwilioSecrets,
     pub github: GitHubSecrets,
     pub slack: SlackSecrets,
+    /// Free-form key/value bag for credentials that don't have a dedicated
+    /// strongly-typed section yet (e.g. social/publishing platforms like
+    /// `linkedin.access_token`, `facebook.page_id`, `twitter.api_key`,
+    /// `discord.bot_token`, `bluesky.app_password`, etc.).
+    ///
+    /// Stored under dot-separated paths so `flatten()` returns them with the
+    /// same key the caller used to set them.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub extras: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -255,7 +264,14 @@ impl SecretsVault {
             "github.access_token" => self.data.github.access_token = Some(value.to_string()),
             "slack.bot_token" => self.data.slack.bot_token = Some(value.to_string()),
             "slack.app_token" => self.data.slack.app_token = Some(value.to_string()),
-            _ => anyhow::bail!("Unknown secret key path: {}", key_path),
+            // Anything else — route to the generic extras bag so we transparently
+            // support all social/publishing platform credentials without having
+            // to add a typed struct for each one.
+            other => {
+                self.data
+                    .extras
+                    .insert(other.to_string(), value.to_string());
+            }
         }
         self.data.updated_at = chrono::Utc::now().to_rfc3339();
         Ok(())
@@ -276,7 +292,11 @@ impl SecretsVault {
             "twilio.auth_token" => self.data.twilio.auth_token = None,
             "github.access_token" => self.data.github.access_token = None,
             "slack.bot_token" => self.data.slack.bot_token = None,
-            _ => anyhow::bail!("Unknown secret key path: {}", key_path),
+            other => {
+                // Removing a missing extras key is a no-op (matches the typed
+                // branches above where `= None` on an already-None field is fine).
+                self.data.extras.remove(other);
+            }
         }
         self.data.updated_at = chrono::Utc::now().to_rfc3339();
         Ok(())
@@ -310,6 +330,14 @@ impl SecretsVault {
                 .as_ref()
                 .map(|a| !a.api_key.is_empty())
                 .unwrap_or(false)
+    }
+
+    /// Flatten all secrets into a key-value map for lookup.
+    ///
+    /// Public sibling of [`Self::flatten`] used by API handlers that need to
+    /// inspect every stored credential (e.g. the integration test endpoint).
+    pub fn flatten_for_test(&self) -> HashMap<String, String> {
+        self.flatten()
     }
 
     /// Flatten all secrets into a key-value map for lookup.
@@ -367,6 +395,13 @@ impl SecretsVault {
         }
         if let Some(ref v) = self.data.slack.app_token {
             map.insert("slack.app_token".to_string(), v.clone());
+        }
+
+        // Generic extras bag (linkedin.*, twitter.*, facebook.*, discord.*, …)
+        for (k, v) in &self.data.extras {
+            if !v.is_empty() {
+                map.insert(k.clone(), v.clone());
+            }
         }
 
         map

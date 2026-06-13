@@ -36,11 +36,34 @@ Cancel the researcher agent
 # List all sub-agents
 curl http://localhost:3001/api/agents
 
+# List available presets (coder, researcher, writer, marketer, …)
+curl http://localhost:3001/api/agents/presets
+
+# Spawn a sub-agent from a preset
+curl -X POST http://localhost:3001/api/agents \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"researcher","task":"Find the latest AI news","preset":"researcher"}'
+
 # Get sub-agent status
 curl http://localhost:3001/api/agents/{id}
 
-# Cancel a sub-agent
+# Cancel a running sub-agent
 curl -X DELETE http://localhost:3001/api/agents/{id}
+
+# List / clear run history
+curl http://localhost:3001/api/agents/{id}/runs
+curl -X DELETE http://localhost:3001/api/agents/{id}/runs
+```
+
+Full route list: [API.md › Sub-agents](./API.md#sub-agents).
+
+### Via CLI
+
+```bash
+pylot agents list                                # active sub-agents
+pylot agents presets                             # available presets
+pylot agents show <preset>                       # preset details
+pylot agents spawn --preset coder "Add JWT auth" # spawn from preset
 ```
 
 ### Via Web UI
@@ -49,11 +72,11 @@ Navigate to the **Sub-Agents** page in the sidebar to monitor active and complet
 
 ## Sub-Agent Types
 
-| Type | Description |
-|------|-------------|
-| `Task` | One-shot agent that completes a task and returns a result |
+| Type         | Description                                                |
+| ------------ | ---------------------------------------------------------- |
+| `Task`       | One-shot agent that completes a task and returns a result  |
 | `Background` | Long-running agent that monitors or processes continuously |
-| `Specialist` | Agent with a specific system prompt for domain expertise |
+| `Specialist` | Agent with a specific system prompt for domain expertise   |
 
 ## Configuration
 
@@ -66,6 +89,11 @@ The orchestrator limits concurrent sub-agents to **4** by default. Each sub-agen
 
 ## Limitations
 
-- Sub-agents cannot spawn their own sub-agents (no recursive spawning)
-- Results are kept in memory only (not persisted across restarts)
-- Sub-agent API spawning is limited — full spawn requires LLM provider creation
+- Sub-agents cannot spawn their own sub-agents (no recursive spawning).
+- Run history is persisted to disk per sub-agent, but live in-flight state is in memory and resets on restart.
+
+## See also
+
+- [PLUGINS.md](./PLUGINS.md) — how to add your own agent presets (no Rust required).
+- [API.md](./API.md#sub-agents) — full HTTP API for sub-agent management.
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — where sub-agents fit in the overall system.

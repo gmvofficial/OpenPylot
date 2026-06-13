@@ -222,6 +222,10 @@ export interface SocialPost {
   campaign_id?: string;
   published_at?: string;
   scheduled_at?: string;
+  /** Platform-side post id (e.g. LinkedIn URN `urn:li:share:7…`). */
+  platform_post_id?: string;
+  /** Browser URL where the published post can be viewed (set after publish). */
+  post_url?: string;
   analytics?: {
     likes: number;
     shares: number;

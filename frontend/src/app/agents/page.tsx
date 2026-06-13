@@ -15,6 +15,7 @@ interface SubAgent {
   completed_at?: string;
   result?: string;
   error?: string;
+  interval_secs?: number;
 }
 
 interface SubAgentRun {
@@ -34,6 +35,9 @@ export default function AgentsPage() {
   const [spawnName, setSpawnName] = useState("");
   const [spawnTask, setSpawnTask] = useState("");
   const [spawnPreset, setSpawnPreset] = useState<string>("");
+  const [spawnInterval, setSpawnInterval] = useState<number | null>(null);
+  const [spawnIntervalCustom, setSpawnIntervalCustom] = useState<string>("");
+  const [spawnIntervalUnit, setSpawnIntervalUnit] = useState<"minutes" | "hours" | "days">("minutes");
   const [spawning, setSpawning] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<SubAgent | null>(null);
   const prevStatusMap = useRef<Record<string, string>>({});
@@ -89,12 +93,16 @@ export default function AgentsPage() {
   }, []);
 
   const handlePresetChange = async (name: string) => {
+    const prevPreset = presets.find((p) => p.name === spawnPreset);
     setSpawnPreset(name);
     if (!name) return;
     const preset = presets.find((p) => p.name === name);
     if (preset) {
-      // Prefill name if empty
-      if (!spawnName.trim()) setSpawnName(preset.name);
+      // Always update name when switching presets (overwrite if name was
+      // empty or was set by a previous preset selection).
+      if (!spawnName.trim() || (prevPreset && spawnName === prevPreset.name)) {
+        setSpawnName(preset.name);
+      }
     }
   };
 
@@ -103,14 +111,32 @@ export default function AgentsPage() {
     setSpawning(true);
     try {
       const preset = presets.find((p) => p.name === spawnPreset);
+      // Resolve interval: quick-pick OR custom — never silently fall through to one-shot
+      let intervalSecs: number | undefined;
+      if (spawnInterval !== null) {
+        intervalSecs = spawnInterval;
+      } else if (spawnIntervalCustom !== "") {
+        // Custom mode is active — require a valid positive number
+        const val = parseFloat(spawnIntervalCustom.trim());
+        if (!isNaN(val) && val > 0) {
+          const multipliers: Record<string, number> = { minutes: 60, hours: 3600, days: 86400 };
+          intervalSecs = Math.round(val * multipliers[spawnIntervalUnit]);
+        }
+        // If val is invalid / empty, intervalSecs stays undefined → one-shot
+      }
+      console.log("[spawn] intervalSecs resolved to:", intervalSecs, "| custom:", spawnIntervalCustom, "| unit:", spawnIntervalUnit, "| quickpick:", spawnInterval);
       await apiClient.spawnSubAgent({
         name: spawnName.trim(),
         task: spawnTask.trim(),
         model: preset?.model_override ?? undefined,
+        interval_secs: intervalSecs,
       });
       setSpawnName("");
       setSpawnTask("");
       setSpawnPreset("");
+      setSpawnInterval(null);
+      setSpawnIntervalCustom("");
+      setSpawnIntervalUnit("minutes");
       setShowSpawn(false);
       fetchAgents();
     } catch {
@@ -173,6 +199,13 @@ export default function AgentsPage() {
       case "Pending": return "text-accent-warning";
       default: return "text-foreground-secondary";
     }
+  };
+
+  const formatInterval = (secs: number) => {
+    if (secs < 3600) return `every ${Math.round(secs / 60)} min`;
+    if (secs < 86400) return `every ${(secs / 3600) % 1 === 0 ? secs / 3600 : (secs / 3600).toFixed(1)} hr`;
+    const days = secs / 86400;
+    return `every ${days % 1 === 0 ? days : days.toFixed(1)} day${days !== 1 ? "s" : ""}`;
   };
 
   const statusIcon = (status: string) => {
@@ -325,6 +358,96 @@ export default function AgentsPage() {
               className="w-full bg-background border border-border-hover rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-accent resize-none"
             />
           </div>
+
+          {/* ── Schedule / Recurrence ─────────────────────────────── */}
+          <div>
+            <label className="block text-xs text-foreground-secondary mb-2">
+              Run Schedule <span className="text-foreground-muted">(how often should the agent run?)</span>
+            </label>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {[
+                { label: "Once", value: null },
+                { label: "Every 2 min", value: 120 },
+                { label: "Every 5 min", value: 300 },
+                { label: "Every 30 min", value: 1800 },
+                { label: "Every 1 hr", value: 3600 },
+                { label: "Every 6 hr", value: 21600 },
+                { label: "Every 12 hr", value: 43200 },
+                { label: "Every day", value: 86400 },
+              ].map((opt) => (
+                <button
+                  key={opt.label}
+                  type="button"
+                  onClick={() => { setSpawnInterval(opt.value); setSpawnIntervalCustom(""); }}
+                  className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+                    spawnInterval === opt.value && !spawnIntervalCustom
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-border-hover bg-background text-foreground-secondary hover:border-border-hover"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => { setSpawnInterval(null); setSpawnIntervalCustom(" "); }}
+                className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+                  spawnIntervalCustom !== ""
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-border-hover bg-background text-foreground-secondary hover:border-border-hover"
+                }`}
+              >
+                Custom
+              </button>
+            </div>
+            {spawnIntervalCustom !== "" && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-foreground-secondary">Every</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={spawnIntervalCustom.trim()}
+                    onChange={(e) => setSpawnIntervalCustom(e.target.value)}
+                    placeholder="2"
+                    className="w-20 bg-background border border-border-hover rounded-lg px-2 py-1.5 text-sm text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-accent"
+                    autoFocus
+                  />
+                  <select
+                    value={spawnIntervalUnit}
+                    onChange={(e) => setSpawnIntervalUnit(e.target.value as "minutes" | "hours" | "days")}
+                    className="bg-background border border-border-hover rounded-lg px-2 py-1.5 text-sm text-foreground focus:outline-none focus:border-accent"
+                  >
+                    <option value="minutes">minutes</option>
+                    <option value="hours">hours</option>
+                    <option value="days">days</option>
+                  </select>
+                </div>
+                {/* Always show the computed seconds so user can verify */}
+                {(() => {
+                  const raw = spawnIntervalCustom.trim();
+                  const val = parseFloat(raw);
+                  if (!raw || isNaN(val) || val <= 0) {
+                    return (
+                      <p className="text-xs text-accent-error">Enter a number greater than 0.</p>
+                    );
+                  }
+                  const multipliers: Record<string, number> = { minutes: 60, hours: 3600, days: 86400 };
+                  const secs = Math.round(val * multipliers[spawnIntervalUnit]);
+                  const human = secs < 3600
+                    ? `${Math.round(secs / 60)} minute(s)`
+                    : secs < 86400
+                    ? `${(secs / 3600).toFixed(1)} hour(s)`
+                    : `${(secs / 86400).toFixed(1)} day(s)`;
+                  return (
+                    <p className="text-xs text-accent">
+                      ✓ Agent will run every <strong>{human}</strong> ({secs}s)
+                    </p>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -367,6 +490,12 @@ export default function AgentsPage() {
                           <span>{agent.agent_type}</span>
                         </>
                       )}
+                      {agent.interval_secs ? (
+                        <>
+                          <span>·</span>
+                          <span className="text-accent-warning">🔁 {formatInterval(agent.interval_secs)}</span>
+                        </>
+                      ) : null}
                       {agent.started_at && (
                         <>
                           <span>·</span>

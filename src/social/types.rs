@@ -85,12 +85,45 @@ pub enum ContentType {
     Text,
     Image,
     Video,
+    Document,
     Carousel,
     Story,
     Reel,
     Article,
     Pin,
     Thread,
+}
+
+impl ContentType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ContentType::Text => "text",
+            ContentType::Image => "image",
+            ContentType::Video => "video",
+            ContentType::Document => "document",
+            ContentType::Carousel => "carousel",
+            ContentType::Story => "story",
+            ContentType::Reel => "reel",
+            ContentType::Article => "article",
+            ContentType::Pin => "pin",
+            ContentType::Thread => "thread",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "image" => ContentType::Image,
+            "video" => ContentType::Video,
+            "document" => ContentType::Document,
+            "carousel" => ContentType::Carousel,
+            "story" => ContentType::Story,
+            "reel" => ContentType::Reel,
+            "article" => ContentType::Article,
+            "pin" => ContentType::Pin,
+            "thread" => ContentType::Thread,
+            _ => ContentType::Text,
+        }
+    }
 }
 
 /// A social media post.
