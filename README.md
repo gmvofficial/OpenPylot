@@ -758,4 +758,7 @@ Full docs live in [`docs/`](docs/README.md). Highlights:
 
 ## License
 
-MIT
+This project is licensed under the Apache License, Version 2.0.
+See the [LICENSE](./LICENSE) file for full details.
+
+Copyright 2026 Global Mind Ventures Ltd.

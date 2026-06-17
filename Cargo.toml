@@ -1,11 +1,12 @@
 [package]
-name = "pylot"
+name = "open-pylot"
 version = "0.3.0"
 edition = "2021"
 description = "OpenPylot — A Rust-powered personal AI assistant"
-license = "MIT"
-repository = "https://github.com/openpylot/pylot"
-keywords = ["ai", "assistant", "agent", "personal-assistant", "pylot"]
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/globalmindventures/OpenPylot"
+keywords = ["ai", "assistant", "agent", "personal-assistant", "OpenPylot"]
 categories = ["command-line-utilities"]
 
 [[bin]]

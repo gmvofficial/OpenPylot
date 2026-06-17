@@ -1,0 +1,40 @@
+OpenPylot
+Copyright 2026 Global Mind Ventures Ltd.
+
+This product is licensed under the Apache License, Version 2.0.
+You may obtain a copy of the License at:
+http://www.apache.org/licenses/LICENSE-2.0
+
+------------------------------------------------------------------------
+THIRD PARTY DEPENDENCIES
+------------------------------------------------------------------------
+
+This project includes the following third-party software:
+
+1. MPL-2.0 Licensed Crates
+   - colored
+   - cssparser
+   - cssparser-macros
+   - dtoa-short
+   - option-ext
+   - selectors
+   License: Mozilla Public License 2.0
+   URL: https://mozilla.org/MPL/2.0/
+
+2. MIT Licensed Crates (selected)
+   - axum, hyper, tokio, serde, reqwest
+   License: MIT
+   URL: https://opensource.org/licenses/MIT
+
+3. ISC Licensed Crates
+   - scraper, rustls-webpki, ego-tree
+   License: ISC
+   URL: https://opensource.org/licenses/ISC
+
+4. ring (Apache-2.0 AND ISC)
+   URL: https://github.com/briansmith/ring
+
+------------------------------------------------------------------------
+All other dependencies are licensed under Apache-2.0 or MIT or both.
+See Cargo.toml and individual crate documentation for full details.
+------------------------------------------------------------------------
