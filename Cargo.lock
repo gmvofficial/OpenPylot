@@ -2346,7 +2346,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "open-pylot"
+name = "openpylot"
 version = "0.3.0"
 dependencies = [
  "aes-gcm",

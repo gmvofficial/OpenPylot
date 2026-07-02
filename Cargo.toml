@@ -1,5 +1,5 @@
 [package]
-name = "open-pylot"
+name = "openpylot"
 version = "0.3.0"
 edition = "2021"
 description = "OpenPylot — A Rust-powered personal AI assistant"

@@ -26,7 +26,7 @@ Complete reference for installing OpenPylot. For a 5-minute walk-through start w
 One-line installer (macOS / Linux):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/openpylot/pylot/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/globalmindventures/OpenPylot/main/install.sh | bash
 ```
 
 This will:
@@ -58,7 +58,7 @@ PYLOT_VERSION=0.2.0 PYLOT_NO_INIT=1 curl -fsSL .../install.sh | bash
 ### Download Binary
 
 Download the pre-built binary for your platform from the
-[Releases page](https://github.com/openpylot/pylot/releases):
+[Releases page](https://github.com/globalmindventures/OpenPylot/releases):
 
 | Platform              | Binary                                   |
 | --------------------- | ---------------------------------------- |
@@ -85,8 +85,8 @@ pylot --version
 ## Homebrew
 
 ```bash
-brew tap openpylot/tap
-brew install pylot
+brew tap globalmindventures/tap
+brew install openpylot
 ```
 
 To start as a background service:
@@ -108,7 +108,7 @@ brew upgrade pylot
 Quick try-out:
 
 ```bash
-git clone https://github.com/openpylot/pylot.git
+git clone https://github.com/globalmindventures/OpenPylot.git
 cd pylot
 docker compose up -d
 ```
@@ -124,7 +124,7 @@ For production-grade Docker setup (env files, healthchecks, reverse proxy, persi
 ### Install from PyPI
 
 ```bash
-pip install pylot
+pip install openpylot
 ```
 
 > **Note:** The Rust binary must also be installed and on your `PATH`.
@@ -140,7 +140,7 @@ pylot --version
 ### Development Install
 
 ```bash
-git clone https://github.com/openpylot/pylot.git
+git clone https://github.com/globalmindventures/OpenPylot.git
 cd pylot/python
 pip install maturin
 maturin develop
@@ -158,10 +158,10 @@ See [python/README.md](../python/README.md) for full Python usage documentation.
 
 ```bash
 # Global install (provides pylot CLI)
-npm install -g pylot
+npm install -g openpylot
 
 # Or as a project dependency
-npm install pylot
+npm install openpylot
 ```
 
 > **Note:** The Rust binary must also be installed and on your `PATH`.
@@ -177,7 +177,7 @@ npx pylot --version
 ### Development Install
 
 ```bash
-git clone https://github.com/openpylot/pylot.git
+git clone https://github.com/globalmindventures/OpenPylot.git
 cd pylot/node
 npm install
 npm run build
@@ -196,7 +196,7 @@ npm test
 ### Steps
 
 ```bash
-git clone https://github.com/openpylot/pylot.git
+git clone https://github.com/globalmindventures/OpenPylot.git
 cd pylot
 cargo build --release
 
@@ -323,7 +323,7 @@ Full production guide (Docker, systemd unit, reverse proxy, TLS, hardening) is i
 ### Via Installer
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/openpylot/pylot/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/globalmindventures/OpenPylot/main/install.sh | bash
 ```
 
 ### Via Homebrew
@@ -417,7 +417,7 @@ export GOOGLE_REDIRECT_PORT=9090
 # The Rust binary must be on your PATH
 which pylot
 # If not found, install it:
-curl -fsSL https://raw.githubusercontent.com/openpylot/pylot/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/globalmindventures/OpenPylot/main/install.sh | bash
 # Then restart your shell or source your profile:
 source ~/.zshrc
 ```
@@ -449,5 +449,5 @@ pylot logs
 ### Getting Help
 
 - Run `pylot --help` for command reference
-- Check [GitHub Issues](https://github.com/openpylot/pylot/issues)
+- Check [GitHub Issues](https://github.com/globalmindventures/OpenPylot/issues)
 - See [CONTRIBUTING.md](../CONTRIBUTING.md) for development setup

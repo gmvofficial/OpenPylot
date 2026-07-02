@@ -45,6 +45,6 @@ docs/
 - **Default API port:** `3001`
 - **Data directory:** `~/.pylot/`
 - **License:** MIT
-- **Repository:** <https://github.com/openpylot/pylot>
+- **Repository:** <https://github.com/globalmindventures/OpenPylot>
 
 For a high-level feature overview see the top-level [`README.md`](../README.md) at the repo root.

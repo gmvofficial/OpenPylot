@@ -4,10 +4,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/openpylot/pylot"><img src="https://img.shields.io/badge/version-0.3.0-blue" alt="Version"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"></a>
+  <a href="https://github.com/globalmindventures/OpenPylot"><img src="https://img.shields.io/badge/version-0.3.0-blue" alt="Version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License"></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust"></a>
-  <a href="https://github.com/openpylot/pylot/actions"><img src="https://img.shields.io/badge/tests-100%20passing-brightgreen" alt="Tests"></a>
+  <a href="https://github.com/globalmindventures/OpenPylot/actions"><img src="https://img.shields.io/badge/tests-100%20passing-brightgreen" alt="Tests"></a>
 </p>
 
 ---
@@ -59,8 +59,8 @@ OpenPylot is a modular, extensible personal AI assistant built in Rust. It ships
 | **Scheduler**         | Cron-based background jobs: RSVP monitor, meeting reminders, daily briefing, email digest                                                                                             |
 | **Webhooks**          | Receive push notifications from Google Calendar, Gmail, GitHub, and Slack                                                                                                             |
 | **Secrets Vault**     | AES-256-GCM encrypted, machine-bound credential storage with Argon2id KDF                                                                                                             |
-| **Python SDK**        | PyO3 bindings — `pip install pylot`                                                                                                                                                   |
-| **Node.js SDK**       | NAPI-RS bindings — `npm install pylot`                                                                                                                                                |
+| **Python SDK**        | PyO3 bindings — `pip install openpylot`                                                                                                                                                   |
+| **Node.js SDK**       | NAPI-RS bindings — `npm install openpylot`                                                                                                                                                |
 
 ---
 
@@ -84,11 +84,11 @@ OpenPylot is a modular, extensible personal AI assistant built in Rust. It ships
 
 ```bash
 # One-line installer (macOS / Linux)
-curl -fsSL https://raw.githubusercontent.com/openpylot/pylot/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/globalmindventures/OpenPylot/main/install.sh | bash
 
 # Homebrew
-brew tap openpylot/tap
-brew install pylot
+brew tap globalmindventures/tap
+brew install openpylot
 
 # Docker
 docker compose up -d
@@ -97,10 +97,10 @@ docker compose up -d
 cargo build --release && sudo cp target/release/pylot /usr/local/bin/
 
 # Python
-pip install pylot
+pip install openpylot
 
 # Node.js
-npm install -g pylot
+npm install -g openpylot
 ```
 
 ### First Run
@@ -200,7 +200,7 @@ pylot chat "Schedule a meeting with alice@example.com tomorrow at 2pm"
 ### Install
 
 ```bash
-pip install pylot
+pip install openpylot
 ```
 
 > The Rust binary must also be on your `PATH`. The Python package wraps the native binary via PyO3.
@@ -254,7 +254,7 @@ See [python/README.md](python/README.md) for full Python documentation.
 ### Install
 
 ```bash
-npm install pylot
+npm install openpylot
 ```
 
 > The Rust binary must also be on your `PATH`. The Node.js package wraps the native binary via NAPI-RS.

@@ -2,12 +2,12 @@
   "name": "openpylot",
   "version": "0.3.0",
   "description": "OpenPylot — A Rust-powered personal AI assistant (Node.js bindings)",
-  "main": "js/index.js",
-  "types": "js/index.d.ts",
-  "license": "MIT",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/openpylot/pylot"
+    "url": "https://github.com/globalmindventures/OpenPylot"
   },
   "keywords": [
     "ai",
@@ -23,8 +23,9 @@
     "pylot": "js/cli.js"
   },
   "files": [
-    "js/**/*.js",
-    "js/**/*.d.ts",
+    "index.js",
+    "index.d.ts",
+    "js/cli.js",
     "*.node"
   ],
   "napi": {
@@ -46,5 +47,12 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "^2.18.0"
+  },
+  "optionalDependencies": {
+    "openpylot-win32-x64-msvc": "0.3.0",
+    "openpylot-darwin-x64": "0.3.0",
+    "openpylot-linux-x64-gnu": "0.3.0",
+    "openpylot-darwin-arm64": "0.3.0",
+    "openpylot-linux-arm64-gnu": "0.3.0"
   }
 }

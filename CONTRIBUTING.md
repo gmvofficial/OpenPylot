@@ -40,7 +40,7 @@ Thank you for your interest in contributing to OpenPylot! This guide will help y
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Clone and build
-git clone https://github.com/openpylot/pylot.git
+git clone https://github.com/globalmindventures/OpenPylot.git
 cd pylot
 cargo build
 

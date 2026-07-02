@@ -1,5 +1,5 @@
 # ── Build stage ───────────────────────────────────────────────────────
-FROM rust:1.85-slim-bookworm AS builder
+FROM rust:1.93-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev ca-certificates \
@@ -10,7 +10,12 @@ COPY Cargo.toml Cargo.lock* ./
 COPY src/ src/
 COPY config/ config/
 
-# Build in release mode
+# Build in release mode.
+# Cargo.toml sets `lto = true` (fat LTO) for the smallest local binary, but
+# linking that way needs >4GB RAM. Override to thin LTO here so the image
+# builds within typical Docker Desktop / CI memory limits (~3-4GB).
+ENV CARGO_PROFILE_RELEASE_LTO=thin
+ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 RUN cargo build --release --bin pylot
 
 # ── Runtime stage ────────────────────────────────────────────────────

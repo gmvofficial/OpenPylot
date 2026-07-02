@@ -3,8 +3,8 @@ name = "pylot-python-bindings"
 version = "0.3.0"
 edition = "2021"
 description = "Python bindings for OpenPylot — A Rust-powered personal AI assistant"
-license = "MIT"
-repository = "https://github.com/openpylot/pylot"
+license = "Apache-2.0"
+repository = "https://github.com/globalmindventures/OpenPylot"
 publish = false
 
 [lib]
@@ -20,4 +20,4 @@ anyhow = "1"
 dirs = "6"
 
 # Reference the main workspace crate (path-based for development)
-pylot-core = { path = "..", package = "pylot" }
+pylot-core = { path = "..", package = "openpylot" }

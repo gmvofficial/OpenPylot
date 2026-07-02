@@ -3,8 +3,8 @@ name = "pylot-node-bindings"
 version = "0.3.0"
 edition = "2021"
 description = "Node.js bindings for OpenPylot — A Rust-powered personal AI assistant"
-license = "MIT"
-repository = "https://github.com/openpylot/pylot"
+license = "Apache-2.0"
+repository = "https://github.com/globalmindventures/OpenPylot"
 publish = false
 
 [lib]
@@ -19,7 +19,7 @@ serde_json = "1"
 anyhow = "1"
 
 # Reference the main workspace crate
-pylot-core = { path = "..", package = "pylot" }
+pylot-core = { path = "..", package = "openpylot" }
 
 [build-dependencies]
 napi-build = "2"

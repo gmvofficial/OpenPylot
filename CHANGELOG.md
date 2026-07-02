@@ -71,7 +71,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **System service** — `pylot serve install` for launchd (macOS) and systemd (Linux).
 - **Python SDK** — PyO3 bindings with `PylotAgent`, `Config`, custom tool registration.
 - **Node.js SDK** — NAPI-RS bindings with `PylotAgent`, `Config`, diagnostics.
-- **Homebrew formula** — `brew tap openpylot/tap && brew install pylot`.
+- **Homebrew formula** — `brew tap globalmindventures/tap && brew install openpylot`.
 - **One-line installer** — `curl | bash` installer for macOS and Linux.
 - **Docker support** — Dockerfile and docker-compose.yml.
 - **Social media** — Twitter, LinkedIn, Bluesky publishing with provider architecture.

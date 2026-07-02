@@ -225,7 +225,7 @@ Critical files:
 Binary install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/openpylot/pylot/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/globalmindventures/OpenPylot/main/install.sh | bash
 pylot --version
 ```
 
