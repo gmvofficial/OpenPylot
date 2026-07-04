@@ -1,6 +1,6 @@
 # OpenPylot — Python Bindings
 
-Python bindings for [OpenPylot](https://github.com/globalmindventures/OpenPylot), a Rust-powered personal AI assistant.
+Python bindings for [OpenPylot](https://github.com/gmvofficial/OpenPylot), a Rust-powered personal AI assistant.
 
 ## Installation
 

@@ -1356,7 +1356,10 @@ impl PlatformProvider for RedditProvider {
             .client
             .post("https://oauth.reddit.com/api/submit")
             .bearer_auth(token)
-            .header("User-Agent", "pylot:v0.3.0 (by /u/pylot)")
+            .header(
+                "User-Agent",
+                concat!("pylot:v", env!("CARGO_PKG_VERSION"), " (by /u/pylot)"),
+            )
             .form(&form)
             .send()
             .await
@@ -1387,7 +1390,10 @@ impl PlatformProvider for RedditProvider {
             .client
             .post("https://oauth.reddit.com/api/del")
             .bearer_auth(token)
-            .header("User-Agent", "pylot:v0.3.0 (by /u/pylot)")
+            .header(
+                "User-Agent",
+                concat!("pylot:v", env!("CARGO_PKG_VERSION"), " (by /u/pylot)"),
+            )
             .form(&[("id", format!("t3_{platform_post_id}"))])
             .send()
             .await

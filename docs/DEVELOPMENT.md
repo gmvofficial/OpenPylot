@@ -70,7 +70,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for what each module does and how they 
 ## Clone and build
 
 ```bash
-git clone https://github.com/globalmindventures/OpenPylot.git
+git clone https://github.com/gmvofficial/OpenPylot.git
 cd pylot
 
 # Debug build (fast, ~30s once deps cached)

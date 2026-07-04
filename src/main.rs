@@ -64,7 +64,7 @@ use crate::tools::ToolRegistry;
 #[command(
     name = "pylot",
     about = "OpenPylot — A Rust-powered personal AI assistant",
-    version = "0.3.0"
+    version = env!("CARGO_PKG_VERSION")
 )]
 struct Cli {
     #[command(subcommand)]
@@ -898,33 +898,23 @@ fn build_components(
 ) -> Result<(Arc<dyn LlmProvider>, ToolRegistry, skills::SkillRegistry)> {
     // Build LLM provider
     let llm: Arc<dyn LlmProvider> = match config.llm_provider.as_str() {
-        "anthropic" => {
-            let api_key = config
-                .anthropic_api_key
-                .as_ref()
-                .context(
-                    "ANTHROPIC_API_KEY not set. Run 'pylot init' or add it to your .env file.",
-                )?
-                .clone();
-            Arc::new(AnthropicProvider::new(
+        "anthropic" => match config.anthropic_api_key.clone() {
+            Some(api_key) => Arc::new(AnthropicProvider::new(
                 api_key,
                 config.llm_model.clone(),
                 config.llm_max_tokens,
-            ))
-        }
-        "openai" | _ => {
-            let api_key = config
-                .openai_api_key
-                .as_ref()
-                .context("OPENAI_API_KEY not set. Run 'pylot init' or add it to your .env file.")?
-                .clone();
-            Arc::new(OpenAIProvider::new(
+            )),
+            None => llm_without_key(config)?,
+        },
+        "openai" | _ => match config.openai_api_key.clone() {
+            Some(api_key) => Arc::new(OpenAIProvider::new(
                 api_key,
                 config.llm_model.clone(),
                 config.llm_max_tokens,
                 config.llm_temperature,
-            ))
-        }
+            )),
+            None => llm_without_key(config)?,
+        },
     };
 
     let tools = build_tool_registry(config, smart_memory);
@@ -934,6 +924,91 @@ fn build_components(
     tracing::info!("Loaded {} skills total", skill_registry.len());
 
     Ok((llm, tools, skill_registry))
+}
+
+/// Called when no API key is configured for the active LLM provider.
+///
+/// Interactive terminal: prompt once and store the key in the encrypted
+/// secrets vault. Non-interactive (start.sh, Docker, launchd): return a
+/// lazy provider so the server still starts — the key can then be added
+/// from the frontend setup wizard and takes effect without a restart.
+fn llm_without_key(config: &AppConfig) -> Result<Arc<dyn LlmProvider>> {
+    use std::io::IsTerminal;
+
+    let provider = config.llm_provider.as_str();
+
+    if std::io::stdin().is_terminal() && std::io::stderr().is_terminal() {
+        let api_key = prompt_api_key_into_vault(provider)?;
+        let built: Arc<dyn LlmProvider> = match provider {
+            "anthropic" => Arc::new(AnthropicProvider::new(
+                api_key,
+                config.llm_model.clone(),
+                config.llm_max_tokens,
+            )),
+            _ => Arc::new(OpenAIProvider::new(
+                api_key,
+                config.llm_model.clone(),
+                config.llm_max_tokens,
+                config.llm_temperature,
+            )),
+        };
+        return Ok(built);
+    }
+
+    tracing::warn!(
+        "No {} API key configured — starting anyway. Add the key from the web dashboard \
+         setup wizard; it will be picked up without a restart.",
+        provider
+    );
+    Ok(Arc::new(llm::lazy::LazyProvider::new(
+        config.llm_provider.clone(),
+        config.llm_model.clone(),
+        config.llm_max_tokens,
+        config.llm_temperature,
+    )))
+}
+
+/// Prompt for an API key on the terminal and persist it to the encrypted vault.
+fn prompt_api_key_into_vault(provider: &str) -> Result<String> {
+    use dialoguer::Password;
+
+    let (label, vault_key, prefix) = match provider {
+        "anthropic" => ("Anthropic", "llm.anthropic.api_key", "sk-ant-"),
+        _ => ("OpenAI", "llm.openai.api_key", "sk-"),
+    };
+
+    println!();
+    println!("{} No {} API key found.", "🔑".bright_yellow(), label);
+    println!("   It will be stored in the encrypted secrets vault (no .env needed).");
+
+    let api_key: String = Password::new()
+        .with_prompt(format!("Enter your {} API key", label))
+        .interact()
+        .context("Failed to read API key from terminal")?;
+    let api_key = api_key.trim().to_string();
+
+    if api_key.is_empty() {
+        anyhow::bail!(
+            "No API key provided. Run 'pylot init', or set it from the web dashboard setup wizard."
+        );
+    }
+    if !api_key.starts_with(prefix) {
+        println!(
+            "   {} Key doesn't start with '{}' — it may not work.",
+            "⚠".yellow(),
+            prefix
+        );
+    }
+
+    let vault_path = secrets::default_secrets_path();
+    let mut vault =
+        secrets::SecretsVault::open(&vault_path, None).context("Failed to open secrets vault")?;
+    vault.set(vault_key, &api_key)?;
+    vault.save()?;
+    println!("   {} Key saved to encrypted vault.", "✅".bright_green());
+    println!();
+
+    Ok(api_key)
 }
 
 /// Initialize SmartMemory if enabled in config. Returns None on failure (graceful degradation).

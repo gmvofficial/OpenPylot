@@ -4,10 +4,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/globalmindventures/OpenPylot"><img src="https://img.shields.io/badge/version-0.3.0-blue" alt="Version"></a>
+  <a href="https://github.com/gmvofficial/OpenPylot"><img src="https://img.shields.io/badge/version-0.1.0-blue" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="License"></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust"></a>
-  <a href="https://github.com/globalmindventures/OpenPylot/actions"><img src="https://img.shields.io/badge/tests-100%20passing-brightgreen" alt="Tests"></a>
+  <a href="https://github.com/gmvofficial/OpenPylot/actions"><img src="https://img.shields.io/badge/tests-100%20passing-brightgreen" alt="Tests"></a>
 </p>
 
 ---
@@ -17,7 +17,7 @@ OpenPylot is a modular, extensible personal AI assistant built in Rust. It ships
 ## Table of Contents
 
 - [Features](#features)
-- [What's New in v0.3.0](#whats-new-in-v030)
+- [What's New in v0.1.0](#whats-new-in-v010)
 - [Quick Start](#quick-start)
 - [Usage — CLI](#usage--cli)
 - [Usage — Python SDK](#usage--python-sdk)
@@ -64,7 +64,9 @@ OpenPylot is a modular, extensible personal AI assistant built in Rust. It ships
 
 ---
 
-## What's New in v0.3.0
+## What's New in v0.1.0
+
+_Initial public release — highlights:_
 
 - **17 social media platforms** — Facebook, Instagram, TikTok, YouTube, Pinterest, Reddit, Threads, Mastodon, Discord, Slack, Medium, Dev.to, Hashnode, WordPress (plus existing Twitter, LinkedIn, Bluesky)
 - **Smart Memory v2** — SQLite-backed semantic search with OpenAI embeddings, auto-extraction of personal facts
@@ -84,10 +86,10 @@ OpenPylot is a modular, extensible personal AI assistant built in Rust. It ships
 
 ```bash
 # One-line installer (macOS / Linux)
-curl -fsSL https://raw.githubusercontent.com/globalmindventures/OpenPylot/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/gmvofficial/OpenPylot/main/install.sh | bash
 
 # Homebrew
-brew tap globalmindventures/tap
+brew tap gmvofficial/tap
 brew install openpylot
 
 # Docker

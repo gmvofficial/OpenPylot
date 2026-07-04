@@ -29,7 +29,7 @@ fn test_config_loading() {
         std::env::set_var(key, "");
     }
 
-    let cfg = pylot::config::AppConfig::load()
+    let cfg = openpylot::config::AppConfig::load()
         .expect("Config loading should succeed with defaults");
     assert_eq!(cfg.agent_name, "Pylot");
     assert_eq!(cfg.llm_provider, "openai");
@@ -45,7 +45,7 @@ fn test_config_loading() {
     std::env::set_var("ANTHROPIC_API_KEY", "test-key-123");
     std::env::set_var("LLM_MODEL", "claude-sonnet-4-20250514");
 
-    let cfg = pylot::config::AppConfig::load().unwrap();
+    let cfg = openpylot::config::AppConfig::load().unwrap();
     assert_eq!(cfg.agent_name, "Test Agent");
     assert_eq!(cfg.llm_provider, "anthropic");
     assert_eq!(cfg.anthropic_api_key.as_deref(), Some("test-key-123"));
@@ -63,7 +63,7 @@ fn test_config_loading() {
     // ── Test 3: OpenAI default model ──
     std::env::set_var("LLM_PROVIDER", "openai");
     std::env::remove_var("LLM_MODEL");
-    let cfg = pylot::config::AppConfig::load().unwrap();
+    let cfg = openpylot::config::AppConfig::load().unwrap();
     assert!(
         cfg.llm_model.contains("gpt"),
         "OpenAI provider should default to a GPT model, got: {}",
@@ -76,7 +76,7 @@ fn test_config_loading() {
     let data_dir = tmp.path().join("pylot_test_data");
     std::env::set_var("PYLOT_DATA_DIR", data_dir.to_str().unwrap());
 
-    let cfg = pylot::config::AppConfig::load().unwrap();
+    let cfg = openpylot::config::AppConfig::load().unwrap();
     assert_eq!(cfg.data_dir, data_dir);
     assert!(data_dir.exists());
     std::env::remove_var("PYLOT_DATA_DIR");
@@ -85,7 +85,7 @@ fn test_config_loading() {
     std::env::set_var("GOOGLE_CLIENT_ID", "test-client-id");
     std::env::set_var("GOOGLE_CLIENT_SECRET", "test-client-secret");
 
-    let cfg = pylot::config::AppConfig::load().unwrap();
+    let cfg = openpylot::config::AppConfig::load().unwrap();
     assert!(cfg.google_calendar_enabled);
 
     std::env::remove_var("GOOGLE_CLIENT_ID");
@@ -94,7 +94,7 @@ fn test_config_loading() {
     // ── Test 6: Telegram auto-enable ──
     std::env::set_var("TELEGRAM_BOT_TOKEN", "123:ABC");
 
-    let cfg = pylot::config::AppConfig::load().unwrap();
+    let cfg = openpylot::config::AppConfig::load().unwrap();
     assert!(cfg.telegram_enabled);
     assert_eq!(cfg.telegram_bot_token.as_deref(), Some("123:ABC"));
 

@@ -1,4 +1,4 @@
-use pylot::jobs::reminders::{ReminderState, UpcomingMeeting};
+use openpylot::jobs::reminders::{ReminderState, UpcomingMeeting};
 
 /// Verify meetings within the 15-min window are flagged.
 #[test]
@@ -66,7 +66,7 @@ fn test_reminder_format() {
         attendee_count: 5,
     };
 
-    let msg = pylot::jobs::reminders::format_meeting_reminder(&meeting);
+    let msg = openpylot::jobs::reminders::format_meeting_reminder(&meeting);
     assert!(msg.contains("Design Review"));
     assert!(msg.contains("Conference Room B"));
     assert!(msg.contains("meet.google.com"));

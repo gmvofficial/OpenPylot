@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "openpylot"
-version = "0.3.0"
+version = "0.1.0"
 description = "OpenPylot — A Rust-powered personal AI assistant (Python bindings)"
 license = "Apache-2.0"
 requires-python = ">=3.9"
@@ -25,8 +25,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/globalmindventures/OpenPylot"
-Repository = "https://github.com/globalmindventures/OpenPylot"
+Homepage = "https://github.com/gmvofficial/OpenPylot"
+Repository = "https://github.com/gmvofficial/OpenPylot"
 
 [project.scripts]
 pylot = "pylot.cli:main"

@@ -230,7 +230,7 @@ pub async fn get_status(State(state): State<ApiState>) -> Json<ApiResponse<Agent
         model: config.llm_model.clone(),
         active_integrations: integrations,
         agent_name: config.agent_name.clone(),
-        version: "0.2.0".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
     })
 }
 

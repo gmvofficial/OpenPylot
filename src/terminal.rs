@@ -160,7 +160,7 @@ impl Terminal {
         println!("\n  ╔{}╗", border);
         println!(
             "  ║{:^56}║",
-            format!("🤖 {} v0.3.0", config.agent_name)
+            format!("🤖 {} v{}", config.agent_name, env!("CARGO_PKG_VERSION"))
         );
         println!(
             "  ║{:^56}║",

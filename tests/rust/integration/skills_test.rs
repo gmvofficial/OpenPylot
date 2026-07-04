@@ -1,7 +1,7 @@
-use pylot::skills::types::{Skill, SkillMeta, SkillSource};
-use pylot::skills::registry::SkillRegistry;
-use pylot::skills::loader::SkillLoader;
-use pylot::skills::matcher::SkillMatcher;
+use openpylot::skills::types::{Skill, SkillMeta, SkillSource};
+use openpylot::skills::registry::SkillRegistry;
+use openpylot::skills::loader::SkillLoader;
+use openpylot::skills::matcher::SkillMatcher;
 use std::path::PathBuf;
 use tempfile::TempDir;
 use std::fs;
@@ -20,6 +20,7 @@ fn make_skill(name: &str, category: &str, tags: &[&str], desc: &str, content: &s
             os: vec![],
             requires: None,
             install: vec![],
+            examples: vec![],
         },
         content: content.to_string(),
         source_path: PathBuf::new(),

@@ -2,7 +2,7 @@
 ///
 /// Validates fact storage, conversation summaries, persistence, and context formatting.
 
-use pylot::memory::MemoryStore;
+use openpylot::memory::MemoryStore;
 
 // ── Default / empty state ────────────────────────────────────────────
 

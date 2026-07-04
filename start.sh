@@ -77,10 +77,12 @@ open_browser() {
     fi
 }
 
-# ── Install frontend deps on first run ───────────────────────────────────────
-if [[ ! -d frontend/node_modules ]]; then
-    log "Installing frontend dependencies (first run)…"
-    (cd frontend && npm install)
+# ── Install frontend deps on first run (or repair a broken install) ─────────
+# Check for the `next` binary, not just the node_modules dir — an interrupted
+# npm install (e.g. disk full) can leave node_modules present but incomplete.
+if [[ ! -x frontend/node_modules/.bin/next ]]; then
+    log "Installing frontend dependencies…"
+    (cd frontend && rm -rf node_modules && npm install)
 fi
 
 # ── Track child PIDs so Ctrl+C kills both ───────────────────────────────────
@@ -112,7 +114,9 @@ if [[ "$MODE" == "prod" ]]; then
     free_port "$BACKEND_PORT"
 
     log "Starting backend on http://localhost:${BACKEND_PORT}"
-    cargo run --release -- serve --foreground &
+    # stdin from /dev/null: the backend must not prompt for API keys here —
+    # missing keys are set up from the frontend wizard instead.
+    cargo run --release -- serve --foreground < /dev/null &
     BACKEND_PID=$!
 
     log "Waiting for backend to become ready…"
@@ -149,7 +153,9 @@ free_port "$FRONTEND_PORT"
 
 log "Starting backend on http://localhost:${BACKEND_PORT}"
 log "(first run compiles Rust — this can take 1–2 minutes…)"
-cargo run -- serve --foreground &
+# stdin from /dev/null: the backend must not prompt for API keys here —
+# missing keys are set up from the frontend wizard instead.
+cargo run -- serve --foreground < /dev/null &
 BACKEND_PID=$!
 
 # ── Wait until the backend is actually accepting connections ────────────────

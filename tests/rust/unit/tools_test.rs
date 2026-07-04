@@ -2,7 +2,7 @@
 ///
 /// Validates ToolResult construction, ToolRegistry operations, and ToolDefinition serialization.
 
-use pylot::tools::{ToolDefinition, ToolRegistry, ToolResult};
+use openpylot::tools::{ToolDefinition, ToolRegistry, ToolResult};
 
 // ── ToolResult ───────────────────────────────────────────────────────
 

@@ -15,7 +15,7 @@ For exhaustive install methods (Homebrew, Docker, building from source, system s
 ## 2. Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/globalmindventures/OpenPylot/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/gmvofficial/OpenPylot/main/install.sh | bash
 ```
 
 This installs the `pylot` binary into `~/.pylot/bin/` and adds it to your `PATH`.

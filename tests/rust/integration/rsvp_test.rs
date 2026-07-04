@@ -1,4 +1,4 @@
-use pylot::jobs::rsvp_monitor::{
+use openpylot::jobs::rsvp_monitor::{
     CalendarAttendee, CalendarEvent, EventDateTime, RsvpChange, RsvpState,
 };
 
@@ -123,7 +123,7 @@ fn test_rsvp_format_notification() {
         new_status: "declined".into(),
     };
 
-    let msg = pylot::jobs::rsvp_monitor::format_rsvp_notification(&[change]);
+    let msg = openpylot::jobs::rsvp_monitor::format_rsvp_notification(&[change]);
     assert!(msg.contains("Eve"));
     assert!(msg.contains("Sprint Planning"));
     assert!(msg.contains("Declined"), "Should contain 'Declined', got: {}", msg);

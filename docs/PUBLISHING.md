@@ -13,8 +13,8 @@ Your job here is to **publish** the existing artifacts.
 | Package name     | `openpylot`                                  |
 | CLI command      | `pylot` (this is intentional — name ≠ command)|
 | License          | `Apache-2.0`                                  |
-| Version          | `0.3.0`                                       |
-| GitHub repo      | `https://github.com/globalmindventures/OpenPylot` |
+| Version          | `0.1.0`                                       |
+| GitHub repo      | `https://github.com/gmvofficial/OpenPylot` |
 
 > ⚠️ **Bump the version** in every manifest before a new release (see
 > [Releasing a new version](#releasing-a-new-version)). All five registries
@@ -41,7 +41,7 @@ GitHub Release existing:
 | Docker Hub | https://hub.docker.com         | `docker login`                                          |
 | Homebrew   | GitHub (org access)            | `gh auth login` or web UI                               |
 
-For the `globalmindventures` org, make sure you have **publish/write access** to
+For the `gmvofficial` org, make sure you have **publish/write access** to
 the org on each registry, not just a personal account.
 
 ---
@@ -62,7 +62,7 @@ pip install --upgrade maturin
 
 cd python
 maturin develop                 # compiles + installs into the venv
-python -c "import pylot; print(pylot.__version__)"   # -> 0.3.0
+python -c "import pylot; print(pylot.__version__)"   # -> 0.1.0
 ```
 
 ### Publish to TestPyPI (do this first — it's the safe sandbox)
@@ -174,18 +174,18 @@ A multi-stage image (Rust builder → slim Debian runtime), runs as non-root.
 ### Build & test locally first
 
 ```bash
-docker build -t openpylot:0.3.0 .
-docker run --rm --entrypoint pylot openpylot:0.3.0 --version   # -> pylot 0.3.0
+docker build -t openpylot:0.1.0 .
+docker run --rm --entrypoint pylot openpylot:0.1.0 --version   # -> pylot 0.1.0
 ```
 
 ### Publish (single architecture — quick)
 
 ```bash
 docker login
-docker tag openpylot:0.3.0 globalmindventures/openpylot:0.3.0
-docker tag openpylot:0.3.0 globalmindventures/openpylot:latest
-docker push globalmindventures/openpylot:0.3.0
-docker push globalmindventures/openpylot:latest
+docker tag openpylot:0.1.0 gmvofficial/openpylot:0.1.0
+docker tag openpylot:0.1.0 gmvofficial/openpylot:latest
+docker push gmvofficial/openpylot:0.1.0
+docker push gmvofficial/openpylot:latest
 ```
 
 ### Publish (multi-architecture — recommended for real users)
@@ -195,8 +195,8 @@ This serves both Intel/AMD (`amd64`) and Apple-Silicon/ARM servers (`arm64`):
 ```bash
 docker buildx create --use   # once
 docker buildx build --platform linux/amd64,linux/arm64 \
-  -t globalmindventures/openpylot:0.3.0 \
-  -t globalmindventures/openpylot:latest \
+  -t gmvofficial/openpylot:0.1.0 \
+  -t gmvofficial/openpylot:latest \
   --push .
 ```
 
@@ -236,9 +236,9 @@ Required tarball names (the formula expects these exact names):
 ### Step 5b — Create the GitHub Release
 
 ```bash
-gh release create v0.3.0 dist/*.tar.gz \
-  --repo globalmindventures/OpenPylot \
-  --title "v0.3.0" --notes "OpenPylot 0.3.0"
+gh release create v0.1.0 dist/*.tar.gz \
+  --repo gmvofficial/OpenPylot \
+  --title "v0.1.0" --notes "OpenPylot 0.1.0"
 ```
 
 (Or upload the tarballs via the GitHub Releases web UI.)
@@ -255,18 +255,18 @@ Edit `Formula/openpylot.rb` and replace each `PLACEHOLDER_SHA256_*` with the
 
 ```bash
 # Create a repo literally named "homebrew-tap" in the org
-gh repo create globalmindventures/homebrew-tap --public
+gh repo create gmvofficial/homebrew-tap --public
 
 # Add the formula to it
-git clone https://github.com/globalmindventures/homebrew-tap
+git clone https://github.com/gmvofficial/homebrew-tap
 cp Formula/openpylot.rb homebrew-tap/
-cd homebrew-tap && git add openpylot.rb && git commit -m "Add openpylot 0.3.0" && git push
+cd homebrew-tap && git add openpylot.rb && git commit -m "Add openpylot 0.1.0" && git push
 ```
 
 ### Step 5e — Users install with
 
 ```bash
-brew tap globalmindventures/tap
+brew tap gmvofficial/tap
 brew install openpylot
 ```
 
@@ -313,4 +313,4 @@ existing version, so a mistake means publishing a new patch version.
 - [ ] `npm publish --dry-run` shows the correct files
 - [ ] `docker build` succeeds and `pylot --version` runs in the container
 - [ ] No secrets committed (`.env` is gitignored — never `git add -f` it)
-- [ ] You have publish access to the `globalmindventures` org on each registry
+- [ ] You have publish access to the `gmvofficial` org on each registry

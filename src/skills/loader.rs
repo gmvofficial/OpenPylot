@@ -182,7 +182,7 @@ mod tests {
         assert!(skill.content.contains("## Step 1"));
         // Check requires
         let reqs = skill.meta.requires.as_ref().expect("should have requires");
-        assert!(reqs.bins.contains(&"curl".to_string()));
+        assert!(reqs.bins.contains(&"python3".to_string()));
         println!("✅ youtube-transcripts skill loaded successfully");
         println!("   Name: {}", skill.meta.name);
         println!("   Desc: {}", &skill.meta.description[..60]);

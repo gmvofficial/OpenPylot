@@ -323,7 +323,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PylotMemory>()?;
     m.add_class::<PylotSkills>()?;
     m.add_class::<PylotLearning>()?;
-    m.add("__version__", "0.3.0")?;
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }
 

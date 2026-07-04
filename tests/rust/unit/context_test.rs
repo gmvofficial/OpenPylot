@@ -2,8 +2,8 @@
 ///
 /// Validates message management, trimming, and system prompt handling.
 
-use pylot::context::ConversationContext;
-use pylot::llm::Message;
+use openpylot::context::ConversationContext;
+use openpylot::llm::Message;
 
 // ── Construction ─────────────────────────────────────────────────────
 

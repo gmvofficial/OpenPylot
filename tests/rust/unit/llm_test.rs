@@ -2,7 +2,7 @@
 ///
 /// Validates Message constructors, Role enum, and ToolCall structures.
 
-use pylot::llm::{Message, Role, ToolCall};
+use openpylot::llm::{Message, Role, ToolCall};
 
 // ── Message constructors ─────────────────────────────────────────────
 

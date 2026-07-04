@@ -1,6 +1,7 @@
 pub mod openai;
 pub mod anthropic;
 pub mod fallback;
+pub mod lazy;
 
 use anyhow::Result;
 use async_trait::async_trait;
