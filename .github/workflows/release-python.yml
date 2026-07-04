@@ -28,11 +28,17 @@ defaults:
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64, aarch64]
+        include:
+          # Build each arch natively on its own runner — avoids the
+          # cross-compilation failures of building aarch64 on an x86 host.
+          - runner: ubuntu-latest
+            target: x86_64
+          - runner: ubuntu-24.04-arm
+            target: aarch64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
