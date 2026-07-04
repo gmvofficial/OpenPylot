@@ -1964,7 +1964,7 @@ dependencies = [
 
 [[package]]
 name = "openpylot"
-version = "0.3.0"
+version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2338,7 +2338,7 @@ checksum = "e0c5ccf5294c6ccd63a74f1565028353830a9c2f5eb0c682c355c471726a6e3f"
 
 [[package]]
 name = "pylot-python-bindings"
-version = "0.3.0"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "dirs",

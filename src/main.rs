@@ -285,17 +285,22 @@ enum LearnAction {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize tracing with different levels based on mode
+    // Initialize tracing with different levels based on mode.
+    // Daemons (serve, telegram-bot) stay verbose; the interactive REPL and
+    // one-shot chat default to "warn" for a clean screen. Set RUST_LOG
+    // (e.g. RUST_LOG=pylot=info) to see agent internals when debugging.
     let log_level = match &cli.command {
         Some(Commands::TelegramBot) | Some(Commands::Serve { .. }) => "info",
-        _ => "info",
+        _ => "warn",
     };
 
+    // If RUST_LOG is set, honor it verbatim; otherwise apply the mode default.
+    let env_filter = match std::env::var("RUST_LOG") {
+        Ok(v) if !v.is_empty() => tracing_subscriber::EnvFilter::new(v),
+        _ => tracing_subscriber::EnvFilter::new(format!("pylot={}", log_level)),
+    };
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive(format!("pylot={}", log_level).parse().unwrap()),
-        )
+        .with_env_filter(env_filter)
         .with_target(false)
         .init();
 
@@ -822,7 +827,7 @@ fn build_tool_registry(
                     ats.len()
                 );
             } else {
-                tracing::warn!(
+                tracing::debug!(
                     "Twitter enabled but missing credentials — \
                      api_key={}, api_secret={}, access_token={}, access_token_secret={}",
                     k.is_some(),

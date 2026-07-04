@@ -16,6 +16,6 @@ Programmatic / CI:
 """
 
 from pylot._native import PylotAgent, Config, PylotMemory, PylotSkills, PylotLearning
+from pylot._native import __version__
 
 __all__ = ["PylotAgent", "Config", "PylotMemory", "PylotSkills", "PylotLearning"]
-__version__ = "0.3.0"
