@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # OpenPylot Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/user/pylot/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/gmvofficial/OpenPylot/main/install.sh | bash
 #
 # Environment variables:
 #   PYLOT_VERSION   - Specific version to install (default: latest)
@@ -9,7 +9,8 @@
 set -euo pipefail
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-REPO="user/pylot"  # TODO: Update with actual GitHub repo
+REPO="gmvofficial/OpenPylot"       # GitHub repo (owner/name)
+CRATE="openpylot"                  # crates.io package (builds the `pylot` binary)
 VERSION="${PYLOT_VERSION:-latest}"
 PREFIX="${PYLOT_PREFIX:-$HOME/.pylot}"
 BIN_DIR="$PREFIX/bin"
@@ -48,11 +49,10 @@ detect_platform() {
 
     PLATFORM="${os}"
     ARCH="${arch}"
-    TARGET="${arch}-${os}"
 
     if [[ "$os" == "linux" ]]; then
         TARGET="${arch}-unknown-linux-gnu"
-    elif [[ "$os" == "darwin" ]]; then
+    else
         TARGET="${arch}-apple-darwin"
     fi
 }
@@ -74,40 +74,51 @@ check_dependencies() {
 resolve_version() {
     if [[ "$VERSION" == "latest" ]]; then
         info "Fetching latest release..."
-        VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep '"tag_name"' | head -1 | sed -E 's/.*"v?([^"]+)".*/\1/')
+        VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+            | grep '"tag_name"' | head -1 | sed -E 's/.*"v?([^"]+)".*/\1/' || true)
 
         if [[ -z "$VERSION" ]]; then
-            fatal "Could not determine latest version. Set PYLOT_VERSION manually."
+            warn "Could not determine latest GitHub release; will install the latest published crate."
+            VERSION="latest"
         fi
     fi
-    info "Installing pylot v${VERSION} for ${TARGET}"
+    if [[ "$VERSION" == "latest" ]]; then
+        info "Installing pylot (latest) for ${TARGET}"
+    else
+        info "Installing pylot v${VERSION} for ${TARGET}"
+    fi
 }
 
 # ─── Download & Install Binary ───────────────────────────────────────────────
 install_binary() {
+    # Prebuilt binaries are only available for tagged releases.
+    if [[ "$VERSION" == "latest" ]]; then
+        info "No pinned version — installing from source via cargo."
+        install_from_cargo
+        return
+    fi
+
     local url="https://github.com/${REPO}/releases/download/v${VERSION}/pylot-${TARGET}.tar.gz"
     local tmp_dir
-
     tmp_dir=$(mktemp -d)
     trap 'rm -rf "$tmp_dir"' EXIT
 
-    info "Downloading from ${url}..."
+    info "Downloading prebuilt binary from ${url}..."
     if ! curl -fsSL "$url" -o "$tmp_dir/pylot.tar.gz" 2>/dev/null; then
         warn "Pre-built binary not available for ${TARGET}."
-        info "Attempting to build from source..."
-        build_from_source
+        install_from_cargo
         return
     fi
 
     info "Extracting..."
     tar -xzf "$tmp_dir/pylot.tar.gz" -C "$tmp_dir"
 
-    # Find the binary
     local binary
     binary=$(find "$tmp_dir" -name "pylot" -type f | head -1)
     if [[ -z "$binary" ]]; then
-        fatal "Binary not found in archive."
+        warn "Binary not found in archive; falling back to cargo."
+        install_from_cargo
+        return
     fi
 
     mkdir -p "$BIN_DIR"
@@ -116,70 +127,33 @@ install_binary() {
     success "Binary installed to ${BIN_DIR}/pylot"
 }
 
-# ─── Build from Source (fallback) ────────────────────────────────────────────
-build_from_source() {
+# ─── Install from crates.io (source build fallback) ──────────────────────────
+install_from_cargo() {
     if ! command -v cargo &>/dev/null; then
-        info "Rust not found. Installing via rustup..."
+        info "Rust toolchain not found. Installing via rustup..."
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        # shellcheck disable=SC1091
         source "$HOME/.cargo/env"
     fi
 
-    info "Building pylot from source (this may take a few minutes)..."
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    trap 'rm -rf "$tmp_dir"' EXIT
+    info "Building pylot from source with cargo (this may take a few minutes)..."
+    mkdir -p "$PREFIX"
 
-    git clone --depth 1 --branch "v${VERSION}" "https://github.com/${REPO}.git" "$tmp_dir/pylot" 2>/dev/null \
-        || git clone --depth 1 "https://github.com/${REPO}.git" "$tmp_dir/pylot"
-
-    cd "$tmp_dir/pylot"
-
-    # Build frontend if Node.js is available
-    build_frontend "$tmp_dir/pylot/frontend" 2>/dev/null || true
-
-    cargo build --release
-
-    mkdir -p "$BIN_DIR"
-    cp target/release/pylot "$BIN_DIR/pylot"
-    chmod +x "$BIN_DIR/pylot"
-    success "Built and installed to ${BIN_DIR}/pylot"
-}
-
-# ─── Build Frontend ──────────────────────────────────────────────────────────
-build_frontend() {
-    local frontend_dir="$1"
-
-    # Check for Node.js / npm
-    if ! command -v node &>/dev/null || ! command -v npm &>/dev/null; then
-        warn "Node.js not found. Skipping frontend build."
-        info "Install Node.js 18+ and run: cd frontend && npm ci && npm run build"
-        return 0
+    local ver_args=()
+    if [[ "$VERSION" != "latest" ]]; then
+        ver_args=(--version "$VERSION")
     fi
 
-    local node_version
-    node_version=$(node --version | sed 's/v//' | cut -d. -f1)
-    if [[ "$node_version" -lt 18 ]]; then
-        warn "Node.js 18+ required (found v${node_version}). Skipping frontend build."
-        return 0
+    # Prefer the pinned lockfile for reproducibility; retry without it if the
+    # published crate didn't ship a Cargo.lock.
+    if ! cargo install "$CRATE" "${ver_args[@]}" --root "$PREFIX" --locked --force 2>/dev/null; then
+        cargo install "$CRATE" "${ver_args[@]}" --root "$PREFIX" --force
     fi
 
-    info "Building frontend..."
-    if [[ -d "$frontend_dir" && -f "$frontend_dir/package.json" ]]; then
-        cd "$frontend_dir"
-        npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
-        npm run build
-        cd - >/dev/null
-
-        # Copy built frontend to installation directory
-        if [[ -d "$frontend_dir/out" ]]; then
-            mkdir -p "$PREFIX/frontend/out"
-            cp -r "$frontend_dir/out/"* "$PREFIX/frontend/out/"
-            success "Frontend built and installed to ${PREFIX}/frontend/out"
-        else
-            warn "Frontend build did not produce output directory."
-        fi
+    if [[ -x "$BIN_DIR/pylot" ]]; then
+        success "Built and installed pylot to ${BIN_DIR}/pylot"
     else
-        warn "Frontend directory not found at $frontend_dir"
+        fatal "cargo install did not produce ${BIN_DIR}/pylot"
     fi
 }
 
@@ -239,6 +213,13 @@ run_init() {
         return
     fi
 
+    # Running via `curl | bash` gives us no TTY for interactive prompts.
+    if [[ ! -t 0 ]]; then
+        info "Non-interactive shell detected — skipping the setup wizard."
+        info "Run 'pylot init' after installation to configure."
+        return
+    fi
+
     echo ""
     echo -e "${BOLD}─── Setup ───${NC}"
     echo ""
@@ -287,7 +268,6 @@ main() {
     resolve_version
     setup_directories
     install_binary
-    build_frontend "$PREFIX/src/frontend" 2>/dev/null || true
     configure_path
     run_init
     print_summary

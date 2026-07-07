@@ -13,22 +13,25 @@ class Openpylot < Formula
   version "0.1.0"
   license "Apache-2.0"
 
+  # Asset names match the tarballs produced by .github/workflows/release-binaries.yml
+  # (Rust target triples). After each release, replace the PLACEHOLDER sha256 sums
+  # with the values printed in that workflow's run summary.
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/gmvofficial/OpenPylot/releases/download/v#{version}/pylot-darwin-arm64.tar.gz"
-      sha256 "e109e29320379869f6c30cebfd155ed28d9e1ad446869a631f99c3f449bfd717"
+      url "https://github.com/gmvofficial/OpenPylot/releases/download/v#{version}/pylot-aarch64-apple-darwin.tar.gz"
+      sha256 "PLACEHOLDER_SHA256_DARWIN_ARM64"
     else
-      url "https://github.com/gmvofficial/OpenPylot/releases/download/v#{version}/pylot-darwin-x86_64.tar.gz"
-      sha256 "PLACEHOLDER_SHA256_X86_64"
+      url "https://github.com/gmvofficial/OpenPylot/releases/download/v#{version}/pylot-x86_64-apple-darwin.tar.gz"
+      sha256 "PLACEHOLDER_SHA256_DARWIN_X86_64"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/gmvofficial/OpenPylot/releases/download/v#{version}/pylot-linux-arm64.tar.gz"
+      url "https://github.com/gmvofficial/OpenPylot/releases/download/v#{version}/pylot-aarch64-unknown-linux-gnu.tar.gz"
       sha256 "PLACEHOLDER_SHA256_LINUX_ARM64"
     else
-      url "https://github.com/gmvofficial/OpenPylot/releases/download/v#{version}/pylot-linux-x86_64.tar.gz"
+      url "https://github.com/gmvofficial/OpenPylot/releases/download/v#{version}/pylot-x86_64-unknown-linux-gnu.tar.gz"
       sha256 "PLACEHOLDER_SHA256_LINUX_X86_64"
     end
   end
