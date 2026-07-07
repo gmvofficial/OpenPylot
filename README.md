@@ -60,7 +60,7 @@ OpenPylot is a modular, extensible personal AI assistant built in Rust. It ships
 | **Webhooks**          | Receive push notifications from Google Calendar, Gmail, GitHub, and Slack                                                                                                             |
 | **Secrets Vault**     | AES-256-GCM encrypted, machine-bound credential storage with Argon2id KDF                                                                                                             |
 | **Python SDK**        | PyO3 bindings — `pip install openpylot`                                                                                                                                                   |
-| **Node.js SDK**       | NAPI-RS bindings — `npm install openpylot`                                                                                                                                                |
+| **Node.js SDK**       | NAPI-RS bindings — `npm install openpylot` _(coming soon)_                                                                                                                                 |
 
 ---
 
@@ -88,9 +88,11 @@ _Initial public release — highlights:_
 # One-line installer (macOS / Linux)
 curl -fsSL https://raw.githubusercontent.com/gmvofficial/OpenPylot/main/install.sh | bash
 
-# Homebrew
-brew tap gmvofficial/tap
-brew install openpylot
+# Cargo (from crates.io)
+cargo install openpylot
+
+# Python
+pip install openpylot
 
 # Docker
 docker compose up -d
@@ -98,12 +100,14 @@ docker compose up -d
 # From source
 cargo build --release && sudo cp target/release/pylot /usr/local/bin/
 
-# Python
-pip install openpylot
+# Homebrew — coming soon
+# brew tap gmvofficial/tap && brew install openpylot
 
-# Node.js
-npm install -g openpylot
+# Node.js SDK — coming soon (not yet published to npm)
+# npm install -g openpylot
 ```
+
+> **Install methods available today:** the one-line installer, `cargo install openpylot`, `pip install openpylot`, Docker, and building from source. Homebrew and the npm package are on the way.
 
 ### First Run
 
@@ -253,10 +257,12 @@ See [python/README.md](python/README.md) for full Python documentation.
 
 ## Usage — Node.js SDK
 
+> ⚠️ **Coming soon** — the Node.js SDK is not yet published to npm. You can build it from source in [`node/`](node/) in the meantime.
+
 ### Install
 
 ```bash
-npm install openpylot
+npm install openpylot   # coming soon
 ```
 
 > The Rust binary must also be on your `PATH`. The Node.js package wraps the native binary via NAPI-RS.
