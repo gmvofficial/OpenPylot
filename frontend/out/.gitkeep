@@ -1,0 +1,4 @@
+This file keeps the frontend/out directory present so the binary compiles
+even before the frontend is built. Real assets are produced by
+`cd frontend && npm run build` (run automatically in the release CI) and
+embedded into the binary via rust-embed.

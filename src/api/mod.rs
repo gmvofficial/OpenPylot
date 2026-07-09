@@ -362,19 +362,28 @@ pub fn api_router(state: ApiState, frontend_dir: Option<PathBuf>) -> Router {
         .layer(cors)
         .layer(body_limit);
 
-    // Serve static frontend files if the build directory exists
-    if let Some(dir) = frontend_dir {
-        if dir.exists() {
+    // Serve the frontend. An on-disk build (dev override via PYLOT_FRONTEND_DIR
+    // or ./frontend/out) takes priority so local UI changes show up without
+    // recompiling; otherwise fall back to the frontend embedded in the binary
+    // at build time, so `pylot serve` is self-contained on every install.
+    match frontend_dir {
+        Some(dir) if dir.exists() => {
             let index = dir.join("index.html");
             // Serve static files, falling back to index.html for SPA routing
             let serve_dir = ServeDir::new(&dir).not_found_service(ServeFile::new(&index));
             app = app.fallback_service(serve_dir);
-            tracing::info!("Serving frontend from {}", dir.display());
-        } else {
-            tracing::warn!(
-                "Frontend directory not found: {}. Run 'cd frontend && npm run build'.",
-                dir.display()
-            );
+            tracing::info!("Serving frontend from disk: {}", dir.display());
+        }
+        _ => {
+            if crate::frontend_assets::has_embedded_frontend() {
+                app = app.fallback(crate::frontend_assets::static_handler);
+                tracing::info!("Serving embedded frontend");
+            } else {
+                tracing::warn!(
+                    "No frontend embedded and no build directory found. \
+                     Build the UI with 'cd frontend && npm run build'."
+                );
+            }
         }
     }
 
