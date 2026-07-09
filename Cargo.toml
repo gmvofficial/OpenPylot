@@ -1,6 +1,6 @@
 [package]
 name = "openpylot"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "OpenPylot — A Rust-powered personal AI assistant"
 license = "Apache-2.0"
@@ -23,6 +23,10 @@ include = [
     "NOTICE",
     "frontend/out/**/*",
 ]
+# NOTE: run `rm -rf frontend/node_modules` before `cargo publish`. cargo bundles
+# every LICENSE/README.md it finds under the crate dir on top of this `include`
+# list, so a populated `frontend/node_modules` would add ~775 stray files.
+# (`exclude` can't prevent this — cargo ignores `exclude` when `include` is set.)
 
 [[bin]]
 name = "pylot"
