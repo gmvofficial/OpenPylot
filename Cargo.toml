@@ -8,6 +8,21 @@ readme = "README.md"
 repository = "https://github.com/gmvofficial/OpenPylot"
 keywords = ["ai", "assistant", "agent", "personal-assistant", "OpenPylot"]
 categories = ["command-line-utilities"]
+# `frontend/out` is gitignored (it's a build product) but is embedded into the
+# binary at compile time via rust-embed, so it MUST be bundled into the
+# published crate — otherwise `cargo install openpylot` ships a UI-less binary.
+# `include` force-adds these paths to the package regardless of .gitignore.
+# Build the frontend (`cd frontend && npm ci && npm run build`) before
+# `cargo publish` so `frontend/out` is populated.
+include = [
+    "src/**/*",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "frontend/out/**/*",
+]
 
 [[bin]]
 name = "pylot"
@@ -57,6 +72,9 @@ cron = "0.13"
 # Webhook server & API server
 axum = { version = "0.8", features = ["ws", "multipart"] }
 tower-http = { version = "0.6", features = ["cors", "fs"] }
+# Embed the built frontend (frontend/out) directly into the binary so
+# `pylot serve` ships a self-contained web UI across every install channel.
+rust-embed = { version = "8", features = ["mime-guess"] }
 
 # Embedded smart memory (SQLite + OpenAI embeddings)
 rusqlite = { version = "0.33", features = ["bundled"] }

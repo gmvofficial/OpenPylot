@@ -3,6 +3,7 @@ mod api;
 mod config;
 mod context;
 mod document_chunker;
+mod frontend_assets;
 mod hooks;
 mod init;
 mod jobs;
@@ -1517,6 +1518,7 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
     };
 
     if let Some(ref dir) = frontend_dir {
+        // Dev override: serving an on-disk build.
         println!(
             "{} Frontend + API server on http://localhost:{}",
             "✅".bright_green(),
@@ -1527,6 +1529,14 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
             "✅".bright_green(),
             dir.display().to_string().bright_cyan(),
         );
+    } else if frontend_assets::has_embedded_frontend() {
+        // Default: UI is compiled into the binary.
+        println!(
+            "{} Frontend + API server on http://localhost:{}",
+            "✅".bright_green(),
+            api_port.to_string().bright_cyan(),
+        );
+        println!("{} Frontend served from embedded build", "✅".bright_green());
     } else {
         println!(
             "{} API server on http://localhost:{} (no frontend build found)",

@@ -5,6 +5,7 @@ pub mod api;
 pub mod config;
 pub mod context;
 pub mod document_chunker;
+pub mod frontend_assets;
 pub mod hooks;
 pub mod jobs;
 pub mod llm;
