@@ -12,24 +12,21 @@ const pkg = JSON.parse(readFileSync(join(nodeDir, 'package.json'), 'utf-8'));
 // The native addon must be built first with `npm run build`.
 
 describe('PylotAgent Node bindings', () => {
-  it('should export PylotAgent and Config', () => {
-    // This test verifies that the package structure is correct.
-    // When the native addon is built, the imports will succeed.
+  it('should have the expected package identity', () => {
     assert.equal(pkg.name, 'openpylot');
-    assert.equal(pkg.version, '0.2.0');
-    assert.ok(pkg.main);
-    assert.ok(pkg.bin['openpylot']);
+    assert.equal(pkg.version, '0.1.1');
+    assert.equal(pkg.main, 'index.js');
+    assert.equal(pkg.bin['pylot'], 'js/cli.js');
   });
 
-  it('should have correct napi triples', () => {
+  it('should have the expected napi triples', () => {
     const triples = pkg.napi.triples;
-    assert.ok(triples.defaults);
+    assert.equal(triples.defaults, false);
     assert.ok(triples.additional.includes('aarch64-apple-darwin'));
     assert.ok(triples.additional.includes('x86_64-unknown-linux-gnu'));
   });
 
-  it('should define Config interface shape', () => {
-    // Verify the Config object can be constructed (shape test)
+  it('should define the Config interface shape', () => {
     const config = {
       llmProvider: 'openai',
       llmModel: 'gpt-4o',

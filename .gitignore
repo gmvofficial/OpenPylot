@@ -18,6 +18,10 @@ build/
 # ── Node.js ───────────────────────────────────────────────────────────
 node_modules/
 *.node
+# npm pack / publish tarballs
+*.tgz
+# CI downloads per-platform .node addons here before publishing
+node/artifacts/
 
 # ── Environment & Secrets ─────────────────────────────────────────────
 .env

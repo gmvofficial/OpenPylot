@@ -277,7 +277,7 @@ impl Terminal {
                     }
                 }
             } else {
-                let spinner = Spinner::start("thinking…");
+                let spinner = Spinner::start("working…");
                 let result = self.agent.chat(input).await;
                 drop(spinner);
                 match result {

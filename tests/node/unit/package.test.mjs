@@ -15,27 +15,25 @@ describe('Package metadata', () => {
     assert.equal(pkg.name, 'openpylot');
   });
 
-  it('should have version 0.2.0', () => {
-    assert.equal(pkg.version, '0.2.0');
+  it('should have version 0.1.1', () => {
+    assert.equal(pkg.version, '0.1.1');
   });
 
   it('should have a main entry point', () => {
-    assert.ok(pkg.main);
-    assert.equal(pkg.main, 'js/index.js');
+    assert.equal(pkg.main, 'index.js');
   });
 
   it('should have TypeScript types', () => {
-    assert.equal(pkg.types, 'js/index.d.ts');
+    assert.equal(pkg.types, 'index.d.ts');
   });
 
-  it('should have the CLI binary registered', () => {
+  it('should register the pylot CLI binary', () => {
     assert.ok(pkg.bin);
-    assert.ok(pkg.bin['openpylot']);
-    assert.equal(pkg.bin['openpylot'], 'js/cli.js');
+    assert.equal(pkg.bin['pylot'], 'js/cli.js');
   });
 
-  it('should have MIT license', () => {
-    assert.equal(pkg.license, 'MIT');
+  it('should have Apache-2.0 license', () => {
+    assert.equal(pkg.license, 'Apache-2.0');
   });
 
   it('should include the correct keywords', () => {
@@ -43,6 +41,10 @@ describe('Package metadata', () => {
     assert.ok(pkg.keywords.includes('agent'));
     assert.ok(pkg.keywords.includes('rust'));
     assert.ok(pkg.keywords.includes('napi'));
+  });
+
+  it('should publish with public access', () => {
+    assert.equal(pkg.publishConfig?.access, 'public');
   });
 });
 
@@ -54,8 +56,12 @@ describe('NAPI configuration', () => {
     assert.equal(pkg.napi.name, 'openpylot');
   });
 
-  it('should have default triples enabled', () => {
-    assert.ok(pkg.napi.triples.defaults);
+  it('should pin explicit triples (defaults disabled)', () => {
+    assert.equal(pkg.napi.triples.defaults, false);
+  });
+
+  it('should support x86_64-apple-darwin', () => {
+    assert.ok(pkg.napi.triples.additional.includes('x86_64-apple-darwin'));
   });
 
   it('should support aarch64-apple-darwin', () => {
@@ -69,72 +75,44 @@ describe('NAPI configuration', () => {
   it('should support aarch64-unknown-linux-gnu', () => {
     assert.ok(pkg.napi.triples.additional.includes('aarch64-unknown-linux-gnu'));
   });
-});
 
-// ── Config interface shape ───────────────────────────────────────────
-
-describe('Config interface', () => {
-  it('should have all expected fields', () => {
-    const config = {
-      llmProvider: 'openai',
-      llmModel: 'gpt-4o',
-      openaiApiKey: 'sk-test',
-      anthropicApiKey: undefined,
-      googleCredentialsFile: undefined,
-      telegramBotToken: undefined,
-      telegramChatId: undefined,
-    };
-
-    assert.equal(config.llmProvider, 'openai');
-    assert.equal(config.llmModel, 'gpt-4o');
-    assert.equal(config.openaiApiKey, 'sk-test');
-    assert.equal(config.anthropicApiKey, undefined);
-    assert.equal(config.googleCredentialsFile, undefined);
-    assert.equal(config.telegramBotToken, undefined);
-    assert.equal(config.telegramChatId, undefined);
+  it('should support x86_64-pc-windows-msvc', () => {
+    assert.ok(pkg.napi.triples.additional.includes('x86_64-pc-windows-msvc'));
   });
 
-  it('should support anthropic configuration', () => {
-    const config = {
-      llmProvider: 'anthropic',
-      llmModel: 'claude-sonnet-4-20250514',
-      anthropicApiKey: 'sk-ant-test',
-    };
-
-    assert.equal(config.llmProvider, 'anthropic');
-    assert.equal(config.llmModel, 'claude-sonnet-4-20250514');
-    assert.equal(config.anthropicApiKey, 'sk-ant-test');
-  });
-
-  it('should allow optional fields to be omitted', () => {
-    const config = {
-      llmProvider: 'openai',
-      llmModel: 'gpt-4o',
-    };
-
-    assert.equal(config.llmProvider, 'openai');
-    assert.equal(config.openaiApiKey, undefined);
+  it('should declare a per-platform optional dependency for each triple', () => {
+    const optional = pkg.optionalDependencies || {};
+    for (const name of [
+      'openpylot-darwin-x64',
+      'openpylot-darwin-arm64',
+      'openpylot-linux-x64-gnu',
+      'openpylot-linux-arm64-gnu',
+      'openpylot-win32-x64-msvc',
+    ]) {
+      assert.equal(optional[name], pkg.version, `${name} should match package version`);
+    }
   });
 });
 
 // ── File structure validation ────────────────────────────────────────
 
 describe('File structure', () => {
-  it('should have cli.js entry point', () => {
+  it('should have the cli.js entry point', () => {
     const cliContent = readFileSync(join(nodeDir, 'js', 'cli.js'), 'utf-8');
-    assert.ok(cliContent.includes('#!/usr/bin/env node'));
-    assert.ok(cliContent.includes('openpylot'));
+    assert.ok(cliContent.startsWith('#!/usr/bin/env node'));
+    assert.ok(cliContent.includes('pylot'));
   });
 
-  it('should have index.ts with type declarations', () => {
-    const indexContent = readFileSync(join(nodeDir, 'js', 'index.ts'), 'utf-8');
+  it('should have generated index.d.ts type declarations', () => {
+    const indexContent = readFileSync(join(nodeDir, 'index.d.ts'), 'utf-8');
     assert.ok(indexContent.includes('interface Config'));
     assert.ok(indexContent.includes('class PylotAgent'));
   });
 
-  it('should have package files pattern', () => {
-    assert.ok(pkg.files.includes('js/**/*.js'));
-    assert.ok(pkg.files.includes('js/**/*.d.ts'));
+  it('should whitelist the files that ship to npm', () => {
+    assert.ok(pkg.files.includes('index.js'));
+    assert.ok(pkg.files.includes('index.d.ts'));
+    assert.ok(pkg.files.includes('js/cli.js'));
     assert.ok(pkg.files.includes('*.node'));
   });
 });

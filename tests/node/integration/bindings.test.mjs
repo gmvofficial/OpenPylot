@@ -3,16 +3,14 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const nodeDir = join(__dirname, '..', '..', '..', 'node');
-const rootDir = join(__dirname, '..', '..', '..');
 
-// ── TypeScript declarations integrity ────────────────────────────────
+// ── TypeScript declarations integrity (generated index.d.ts) ─────────
 
 describe('TypeScript declarations', () => {
-  const indexTs = readFileSync(join(nodeDir, 'js', 'index.ts'), 'utf-8');
+  const indexTs = readFileSync(join(nodeDir, 'index.d.ts'), 'utf-8');
 
   it('should declare Config interface with llmProvider', () => {
     assert.ok(indexTs.includes('llmProvider: string'));
@@ -54,10 +52,6 @@ describe('TypeScript declarations', () => {
     assert.ok(indexTs.includes('static fromConfig(configPath: string): Promise<PylotAgent>'));
   });
 
-  it('should declare constructor with Config', () => {
-    assert.ok(indexTs.includes('constructor(config: Config)'));
-  });
-
   it('should declare chat method', () => {
     assert.ok(indexTs.includes('chat(message: string): Promise<string>'));
   });
@@ -84,16 +78,23 @@ describe('CLI script', () => {
     assert.ok(cliJs.includes('execFileSync'));
   });
 
-  it('should delegate to openpylot binary', () => {
-    assert.ok(cliJs.includes("'openpylot'"));
+  it('should delegate to the pylot binary', () => {
+    assert.ok(cliJs.includes("'pylot'"));
   });
 
   it('should forward process arguments', () => {
     assert.ok(cliJs.includes('process.argv.slice(2)'));
   });
 
-  it('should handle missing binary gracefully', () => {
-    assert.ok(cliJs.includes('openpylot binary not found'));
+  it('should resolve the real binary rather than call itself by name', () => {
+    // Guards against the self-recursion foot-gun: the wrapper must not spawn
+    // the bare command that resolves back to this same shim.
+    assert.ok(cliJs.includes('resolveBinary'));
+    assert.ok(!cliJs.includes("execFileSync('pylot'"));
+  });
+
+  it('should handle a missing binary gracefully', () => {
+    assert.ok(cliJs.includes('native `pylot` binary was not found'));
   });
 });
 
@@ -102,7 +103,7 @@ describe('CLI script', () => {
 describe('Node Cargo.toml consistency', () => {
   const cargoToml = readFileSync(join(nodeDir, 'Cargo.toml'), 'utf-8');
 
-  it('should use napi crate', () => {
+  it('should use the napi crate', () => {
     assert.ok(cargoToml.includes('napi'));
   });
 
@@ -110,12 +111,12 @@ describe('Node Cargo.toml consistency', () => {
     assert.ok(cargoToml.includes('cdylib'));
   });
 
-  it('should have matching version with package.json', () => {
+  it('should have a version matching package.json', () => {
     const pkg = JSON.parse(readFileSync(join(nodeDir, 'package.json'), 'utf-8'));
     assert.ok(cargoToml.includes(`version = "${pkg.version}"`));
   });
 
-  it('should have napi dependency', () => {
+  it('should depend on napi and napi-derive', () => {
     assert.ok(cargoToml.includes('napi'));
     assert.ok(cargoToml.includes('napi-derive'));
   });

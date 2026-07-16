@@ -413,6 +413,17 @@ impl InitWizard {
             "─".repeat(40).dimmed()
         );
 
+        println!(
+            "  {} All integrations are optional — you can add them anytime with {}.",
+            "ℹ".bright_blue(),
+            "pylot add <service>".bright_green()
+        );
+        println!(
+            "  {}\n",
+            "↑/↓ move · SPACE to select · ENTER to confirm (select nothing to skip this step)"
+                .dimmed()
+        );
+
         let integration_options = vec![
             "Google Calendar & Gmail",
             "Telegram",
@@ -422,7 +433,7 @@ impl InitWizard {
         ];
 
         let selections = MultiSelect::new()
-            .with_prompt("Select integrations to set up (space to toggle)")
+            .with_prompt("Select integrations to set up (or press ENTER to skip)")
             .items(&integration_options)
             .interact()
             .context("Failed to get integration selections")?;
@@ -516,6 +527,12 @@ impl InitWizard {
             "─".repeat(40).dimmed()
         );
 
+        println!(
+            "  {}\n",
+            "↑/↓ move · SPACE to toggle · ENTER to confirm (recommended options are pre-checked)"
+                .dimmed()
+        );
+
         let notification_options = vec![
             "Calendar RSVP updates (accepted/declined)",
             "Meeting reminders (15 min before)",
@@ -524,7 +541,7 @@ impl InitWizard {
         ];
 
         let selections = MultiSelect::new()
-            .with_prompt("Enable proactive notifications?")
+            .with_prompt("Enable proactive notifications? (press ENTER to accept)")
             .items(&notification_options)
             .defaults(&[true, true, false, true])
             .interact()
@@ -854,8 +871,13 @@ impl InitWizard {
             "─".repeat(40).dimmed()
         );
         println!(
-            "  {} Connect social accounts for content publishing & analytics.\n",
+            "  {} Connect social accounts for content publishing & analytics.",
             "ℹ".bright_blue()
+        );
+        println!(
+            "  {}\n",
+            "↑/↓ move · SPACE to select · ENTER to confirm (select nothing to skip this step)"
+                .dimmed()
         );
 
         let platform_options = vec![
@@ -878,7 +900,7 @@ impl InitWizard {
         ];
 
         let selections = MultiSelect::new()
-            .with_prompt("Select platforms to connect (space to toggle, enter to continue)")
+            .with_prompt("Select platforms to connect (or press ENTER to skip)")
             .items(&platform_options)
             .interact()
             .context("Failed to get social platform selections")?;
