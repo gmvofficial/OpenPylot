@@ -1,6 +1,6 @@
 [package]
 name = "pylot-node-bindings"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Node.js bindings for OpenPylot — A Rust-powered personal AI assistant"
 license = "Apache-2.0"

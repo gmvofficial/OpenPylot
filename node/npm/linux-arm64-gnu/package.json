@@ -1,0 +1,44 @@
+{
+  "name": "openpylot-linux-arm64-gnu",
+  "version": "0.1.1",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "main": "openpylot.linux-arm64-gnu.node",
+  "files": [
+    "openpylot.linux-arm64-gnu.node"
+  ],
+  "description": "OpenPylot — A Rust-powered personal AI assistant (Node.js / NAPI bindings)",
+  "keywords": [
+    "ai",
+    "assistant",
+    "agent",
+    "personal-assistant",
+    "llm",
+    "rust",
+    "napi",
+    "pylot"
+  ],
+  "author": "gmvofficial",
+  "homepage": "https://github.com/gmvofficial/OpenPylot#readme",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=16"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gmvofficial/OpenPylot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gmvofficial/OpenPylot/issues"
+  },
+  "libc": [
+    "glibc"
+  ]
+}

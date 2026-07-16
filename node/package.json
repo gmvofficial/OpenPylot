@@ -1,13 +1,18 @@
 {
   "name": "openpylot",
-  "version": "0.1.0",
-  "description": "OpenPylot — A Rust-powered personal AI assistant (Node.js bindings)",
+  "version": "0.1.1",
+  "description": "OpenPylot — A Rust-powered personal AI assistant (Node.js / NAPI bindings)",
   "main": "index.js",
   "types": "index.d.ts",
   "license": "Apache-2.0",
+  "author": "gmvofficial",
+  "homepage": "https://github.com/gmvofficial/OpenPylot#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/gmvofficial/OpenPylot"
+    "url": "git+https://github.com/gmvofficial/OpenPylot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/gmvofficial/OpenPylot/issues"
   },
   "keywords": [
     "ai",
@@ -19,6 +24,12 @@
     "napi",
     "pylot"
   ],
+  "engines": {
+    "node": ">=16"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "pylot": "js/cli.js"
   },
@@ -31,28 +42,31 @@
   "napi": {
     "name": "openpylot",
     "triples": {
-      "defaults": true,
+      "defaults": false,
       "additional": [
+        "x86_64-apple-darwin",
         "aarch64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
         "aarch64-unknown-linux-gnu",
-        "x86_64-unknown-linux-gnu"
+        "x86_64-pc-windows-msvc"
       ]
     }
   },
   "scripts": {
     "build": "napi build --release --platform",
     "build:debug": "napi build --platform",
-    "prepublishOnly": "napi prepublish -t npm",
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm --skip-gh-release",
     "test": "node --test ../tests/node/unit/*.test.mjs ../tests/node/integration/*.test.mjs"
   },
   "devDependencies": {
     "@napi-rs/cli": "^2.18.0"
   },
   "optionalDependencies": {
-    "openpylot-win32-x64-msvc": "0.1.0",
-    "openpylot-darwin-x64": "0.1.0",
-    "openpylot-linux-x64-gnu": "0.1.0",
-    "openpylot-darwin-arm64": "0.1.0",
-    "openpylot-linux-arm64-gnu": "0.1.0"
+    "openpylot-darwin-x64": "0.1.1",
+    "openpylot-darwin-arm64": "0.1.1",
+    "openpylot-linux-x64-gnu": "0.1.1",
+    "openpylot-linux-arm64-gnu": "0.1.1",
+    "openpylot-win32-x64-msvc": "0.1.1"
   }
 }
