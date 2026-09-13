@@ -340,3 +340,14 @@ export interface Companion {
   /** Where to point an iframe; present only while running. */
   url: string | null;
 }
+
+/** An MCP server as configured on disk, with its live connection state. */
+export interface McpConfiguredServer {
+  name: string;
+  transport: string;
+  /** The command or URL, whichever this server uses. */
+  target: string;
+  enabled: boolean;
+  connected: boolean;
+  tool_count: number;
+}

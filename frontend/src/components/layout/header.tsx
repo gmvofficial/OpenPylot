@@ -21,6 +21,7 @@ const pageTitles: Record<string, string> = {
   "/settings": "Settings",
   "/settings/memory": "Memory Management",
   "/companions": "Companions",
+  "/mcp": "MCP Servers",
 };
 
 export function Header() {

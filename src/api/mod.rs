@@ -324,6 +324,13 @@ pub fn api_router(
         // MCP
         .route("/mcp/servers", get(handlers::list_mcp_servers))
         .route("/mcp/tools", get(handlers::list_mcp_tools))
+        // Configured servers, not just connected ones — so a disabled or
+        // failing server is visible rather than silently absent.
+        .route("/mcp/config", get(handlers::list_mcp_config))
+        .route("/mcp/config", post(handlers::upsert_mcp_config))
+        .route("/mcp/config/{name}", delete(handlers::delete_mcp_config))
+        .route("/mcp/config/{name}", patch(handlers::set_mcp_enabled))
+        .route("/mcp/config/{name}/test", post(handlers::test_mcp_server))
         // Social
         .route("/social/posts", get(handlers::list_social_posts))
         .route("/social/posts", post(handlers::create_social_post))

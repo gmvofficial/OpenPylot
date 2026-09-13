@@ -4945,3 +4945,214 @@ pub async fn stop_companion(
     state.companions.stop(&name).await;
     ok(true)
 }
+
+// ── MCP server configuration ─────────────────────────────────────────
+
+/// One configured MCP server, with whether it is currently connected.
+#[derive(Serialize)]
+pub struct McpServerView {
+    name: String,
+    transport: String,
+    /// The command or URL, whichever this server uses.
+    target: String,
+    enabled: bool,
+    connected: bool,
+    /// Tools discovered from this server, when it is connected.
+    tool_count: usize,
+}
+
+/// List every *configured* MCP server, not just the connected ones.
+///
+/// `/api/mcp/servers` reports what answered; this reports what is set up, so
+/// the UI can show a disabled or failing server instead of silently omitting
+/// it — which is how a broken MCP config stays invisible.
+pub async fn list_mcp_config(
+    State(state): State<ApiState>,
+) -> Result<Json<ApiResponse<Vec<McpServerView>>>, (StatusCode, Json<ApiError>)> {
+    let path = crate::mcp::config::resolve_path(
+        &state.config.data_dir,
+        state.config.mcp_config_path.as_deref(),
+    );
+    let file = crate::mcp::config::load(&path)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+
+    // Connection state comes from the live registry.
+    let (connected, tools_by_server) = match &state.mcp_registry {
+        Some(registry) => {
+            let reg = registry.lock().await;
+            let mut counts: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for (_, def) in reg.list_tools() {
+                *counts.entry(def.server_name.clone()).or_insert(0) += 1;
+            }
+            (reg.server_names(), counts)
+        }
+        None => (Vec::new(), std::collections::HashMap::new()),
+    };
+
+    let servers = file
+        .all_servers()
+        .into_iter()
+        .map(|s| McpServerView {
+            target: match (&s.command, &s.url) {
+                (Some(command), _) => {
+                    let args = s.args.as_deref().unwrap_or(&[]).join(" ");
+                    if args.is_empty() {
+                        command.clone()
+                    } else {
+                        format!("{command} {args}")
+                    }
+                }
+                (_, Some(url)) => url.clone(),
+                _ => String::new(),
+            },
+            transport: format!("{:?}", s.transport).to_lowercase(),
+            connected: connected.contains(&s.name),
+            tool_count: tools_by_server.get(&s.name).copied().unwrap_or(0),
+            enabled: s.enabled,
+            name: s.name,
+        })
+        .collect();
+
+    Ok(ok(servers))
+}
+
+#[derive(Deserialize)]
+pub struct McpServerInput {
+    name: String,
+    /// Command for a stdio server.
+    #[serde(default)]
+    command: Option<String>,
+    #[serde(default)]
+    args: Option<Vec<String>>,
+    /// URL for an HTTP/SSE server.
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    env: Option<std::collections::HashMap<String, String>>,
+}
+
+/// Add or update an MCP server.
+///
+/// Takes effect on the next restart: connecting a stdio server spawns a child
+/// process, and doing that from an HTTP handler on a running agent would leave
+/// the registry and the config disagreeing about what is live.
+pub async fn upsert_mcp_config(
+    State(state): State<ApiState>,
+    Json(input): Json<McpServerInput>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiError>)> {
+    if input.name.trim().is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "A server name is required."));
+    }
+    if input.command.is_none() && input.url.is_none() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            "Provide either a command (stdio) or a URL (http/sse).",
+        ));
+    }
+
+    let path = crate::mcp::config::resolve_path(
+        &state.config.data_dir,
+        state.config.mcp_config_path.as_deref(),
+    );
+    let server = crate::mcp::McpServerConfig {
+        transport: if input.url.is_some() {
+            crate::mcp::McpTransportType::Http
+        } else {
+            crate::mcp::McpTransportType::Stdio
+        },
+        name: input.name.trim().to_string(),
+        command: input.command,
+        args: input.args,
+        url: input.url,
+        headers: None,
+        env: input.env,
+        enabled: true,
+    };
+
+    let replaced = crate::mcp::config::upsert(&path, server)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+
+    Ok(ok(serde_json::json!({
+        "replaced": replaced,
+        "restart_required": true,
+    })))
+}
+
+/// Remove an MCP server from the config.
+pub async fn delete_mcp_config(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+) -> Result<Json<ApiResponse<bool>>, (StatusCode, Json<ApiError>)> {
+    let path = crate::mcp::config::resolve_path(
+        &state.config.data_dir,
+        state.config.mcp_config_path.as_deref(),
+    );
+    let removed = crate::mcp::config::remove(&path, &name)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+    Ok(ok(removed))
+}
+
+#[derive(Deserialize)]
+pub struct McpEnabledInput {
+    enabled: bool,
+}
+
+/// Enable or disable a configured MCP server.
+pub async fn set_mcp_enabled(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+    Json(input): Json<McpEnabledInput>,
+) -> Result<Json<ApiResponse<bool>>, (StatusCode, Json<ApiError>)> {
+    let path = crate::mcp::config::resolve_path(
+        &state.config.data_dir,
+        state.config.mcp_config_path.as_deref(),
+    );
+    let found = crate::mcp::config::set_enabled(&path, &name, input.enabled)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+    if !found {
+        return Err(err(StatusCode::NOT_FOUND, format!("No MCP server named '{name}'.")));
+    }
+    Ok(ok(true))
+}
+
+/// Connect to one configured server and report what answered.
+///
+/// Uses a throwaway registry so testing a server never disturbs the live one.
+pub async fn test_mcp_server(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiError>)> {
+    let path = crate::mcp::config::resolve_path(
+        &state.config.data_dir,
+        state.config.mcp_config_path.as_deref(),
+    );
+    let file = crate::mcp::config::load(&path)
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+
+    let Some(mut server) = file.all_servers().into_iter().find(|s| s.name == name) else {
+        return Err(err(StatusCode::NOT_FOUND, format!("No MCP server named '{name}'.")));
+    };
+    // You test a disabled server precisely to decide whether to enable it.
+    server.enabled = true;
+
+    let mut registry = crate::mcp::McpRegistry::new();
+    let reports = registry.connect_all(&[server]).await;
+    let tools: Vec<String> = registry.list_tools().into_iter().map(|(n, _)| n).collect();
+    registry.close_all().await;
+
+    let report = reports.first();
+    let (connected, message) = match report.map(|r| &r.outcome) {
+        Some(crate::mcp::registry::ConnectOutcome::Connected { tools }) => {
+            (true, format!("Connected — {tools} tool(s)."))
+        }
+        Some(crate::mcp::registry::ConnectOutcome::Failed(e)) => (false, e.clone()),
+        _ => (false, "Did not connect.".to_string()),
+    };
+
+    Ok(ok(serde_json::json!({
+        "connected": connected,
+        "message": message,
+        "tools": tools,
+    })))
+}

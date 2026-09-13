@@ -19,6 +19,7 @@ import {
   Share2,
   Sun,
   Monitor,
+  Plug,
   Users,
   Wrench,
 } from "lucide-react";
@@ -72,6 +73,7 @@ export function CommandPalette() {
       { id: "setup", label: "Integrations", group: "Go to", Icon: Settings2, run: go("/setup") },
       { id: "knowledge", label: "Knowledge Base", group: "Go to", Icon: BookOpen, run: go("/knowledge") },
       { id: "companions", label: "Companions", keywords: "database dbpylot sql", group: "Go to", Icon: Database, run: go("/companions") },
+      { id: "mcp", label: "MCP Servers", keywords: "model context protocol tools", group: "Go to", Icon: Plug, run: go("/mcp") },
       { id: "tools", label: "Tools & Skills", group: "Go to", Icon: Wrench, run: go("/tools") },
       { id: "dashboard", label: "Dashboard", group: "Go to", Icon: LayoutDashboard, run: go("/dashboard") },
       { id: "settings", label: "Settings", group: "Go to", Icon: Settings, run: go("/settings") },

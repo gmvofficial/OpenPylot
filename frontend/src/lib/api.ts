@@ -6,6 +6,7 @@ import type {
   Integration,
   LogEntry,
   LearningRule,
+  McpConfiguredServer,
   McpServer,
   McpTool,
   MemoryFact,
@@ -539,6 +540,43 @@ class ApiClient {
     }
     // Backend wraps payload in { data: ... }
     return json?.data ?? json;
+  }
+
+  // ── MCP configuration ───────────────────────────────────────────
+
+  /** Every configured MCP server, including disabled and failing ones. */
+  async getMcpConfig(): Promise<McpConfiguredServer[]> {
+    return this.request("/api/mcp/config");
+  }
+
+  async upsertMcpServer(server: {
+    name: string;
+    command?: string;
+    args?: string[];
+    url?: string;
+  }): Promise<{ replaced: boolean; restart_required: boolean }> {
+    return this.request("/api/mcp/config", {
+      method: "POST",
+      body: JSON.stringify(server),
+    });
+  }
+
+  async deleteMcpServer(name: string): Promise<boolean> {
+    return this.request(`/api/mcp/config/${encodeURIComponent(name)}`, { method: "DELETE" });
+  }
+
+  async setMcpServerEnabled(name: string, enabled: boolean): Promise<boolean> {
+    return this.request(`/api/mcp/config/${encodeURIComponent(name)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  /** Connect to one server and report what answered. Does not disturb the live registry. */
+  async testMcpServer(
+    name: string
+  ): Promise<{ connected: boolean; message: string; tools: string[] }> {
+    return this.request(`/api/mcp/config/${encodeURIComponent(name)}/test`, { method: "POST" });
   }
 
   // ── Companions ──────────────────────────────────────────────────

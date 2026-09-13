@@ -1,7 +1,7 @@
 {
   "name": "openpylot",
   "version": "0.1.0",
-  "description": "OpenPylot — A Rust-powered personal AI assistant (Node.js bindings)",
+  "description": "OpenPylot \u2014 A Rust-powered personal AI assistant (Node.js bindings)",
   "main": "index.js",
   "types": "index.d.ts",
   "license": "Apache-2.0",
@@ -26,7 +26,9 @@
     "index.js",
     "index.d.ts",
     "js/cli.js",
-    "*.node"
+    "*.node",
+    "js/companions.js",
+    "js/companions.d.ts"
   ],
   "napi": {
     "name": "openpylot",
@@ -54,5 +56,15 @@
     "openpylot-linux-x64-gnu": "0.1.0",
     "openpylot-darwin-arm64": "0.1.0",
     "openpylot-linux-arm64-gnu": "0.1.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./companions": {
+      "types": "./js/companions.d.ts",
+      "default": "./js/companions.js"
+    }
   }
 }
