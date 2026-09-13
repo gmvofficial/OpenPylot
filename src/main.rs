@@ -1,5 +1,6 @@
 mod agent;
 mod api;
+mod companions;
 mod config;
 mod context;
 mod document_chunker;
@@ -127,6 +128,11 @@ enum Commands {
         no_open: bool,
         #[command(subcommand)]
         action: Option<ServeAction>,
+    },
+    /// Manage companion apps (OpenDbPylot and friends)
+    Companions {
+        #[command(subcommand)]
+        action: CompanionAction,
     },
     /// Print this install's API access token
     Token {
@@ -273,6 +279,17 @@ enum AgentsAction {
 }
 
 #[derive(Subcommand)]
+enum CompanionAction {
+    /// List companion apps and whether each is installed
+    List,
+    /// Add a companion's tools to the agent over MCP
+    Connect {
+        /// Companion name (e.g. dbpylot)
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum McpAction {
     /// List configured MCP servers
     List,
@@ -408,6 +425,7 @@ async fn main() -> Result<()> {
             Some(ServeAction::Uninstall) => scheduler::uninstall_system_service(),
             None => run_serve(&config, foreground, host.as_deref(), no_open).await,
         },
+        Some(Commands::Companions { action }) => run_companions_command(&config, action).await,
         Some(Commands::Token { url, rotate }) => run_token_command(&config, url, rotate),
         // Job management
         Some(Commands::Jobs { action }) => run_jobs_command(&config, action).await,
@@ -1148,6 +1166,109 @@ async fn init_smart_memory(config: &AppConfig) -> Option<Arc<SmartMemory>> {
     }
 }
 
+// ── Companions command ───────────────────────────────────────────────
+
+/// Show which companion apps are installed, and wire one up.
+///
+/// `connect` is the one-step version of the MCP dance: it registers the
+/// companion as an MCP server so the agent gains its tools, and tells you where
+/// its own web UI will appear.
+async fn run_companions_command(config: &AppConfig, action: CompanionAction) -> Result<()> {
+    match action {
+        CompanionAction::List => {
+            println!("{} Companion apps", "🧩".bright_blue());
+            for companion in crate::companions::catalogue() {
+                let installed = which::which(&companion.binary).is_ok();
+                let state = if installed {
+                    "installed".bright_green()
+                } else {
+                    "not installed".dimmed()
+                };
+                println!("  {} [{}]", companion.name.bright_white(), state);
+                println!("    {}", companion.description.dimmed());
+                if installed {
+                    println!(
+                        "    {} {}",
+                        "connect:".dimmed(),
+                        format!("pylot companions connect {}", companion.name).bright_white()
+                    );
+                } else {
+                    println!(
+                        "    {} {}",
+                        "install:".dimmed(),
+                        format!("cargo install open{}", companion.binary).bright_white()
+                    );
+                }
+            }
+            println!(
+                "\n  A connected companion's web UI appears at {} while '{}' is running.",
+                format!("{}/<name>/", crate::companions::MOUNT_PREFIX).bright_cyan(),
+                "pylot serve".bright_white()
+            );
+        }
+
+        CompanionAction::Connect { name } => {
+            let Some(companion) = crate::companions::find(&name) else {
+                anyhow::bail!(
+                    "No companion named '{name}'. Run 'pylot companions list' to see them."
+                );
+            };
+
+            let binary = which::which(&companion.binary).map_err(|_| {
+                anyhow::anyhow!(
+                    "'{}' is not on PATH. Install it first: cargo install open{}",
+                    companion.binary,
+                    companion.binary
+                )
+            })?;
+
+            // Register it over MCP so the agent gains its tools, pointing at the
+            // resolved absolute path — `PATH` may differ under a launch agent.
+            let path = crate::mcp::config::resolve_path(
+                &config.data_dir,
+                config.mcp_config_path.as_deref(),
+            );
+            let mut server = crate::mcp::config::opendbpylot_preset();
+            server.name = companion.name.clone();
+            server.command = Some(binary.display().to_string());
+
+            let replaced = crate::mcp::config::upsert(&path, server)?;
+            println!(
+                "{} '{}' {} as an MCP server",
+                "✅".bright_green(),
+                companion.name.bright_white(),
+                if replaced { "updated" } else { "registered" }
+            );
+
+            if !config.mcp_enabled {
+                match config::set_config_values(&[("mcp.enabled", "true")]) {
+                    Ok(_) => println!("  {} MCP enabled in config", "✅".bright_green()),
+                    Err(e) => println!(
+                        "  {} Could not enable MCP automatically: {e}",
+                        "⚠".bright_yellow()
+                    ),
+                }
+            }
+
+            println!(
+                "  {} its tools appear in the terminal and the web chat",
+                "•".dimmed()
+            );
+            println!(
+                "  {} its own UI appears at {} under 'pylot serve'",
+                "•".dimmed(),
+                format!("{}/{}/", crate::companions::MOUNT_PREFIX, companion.name).bright_cyan()
+            );
+            println!(
+                "  {} verify with: {}",
+                "•".dimmed(),
+                format!("pylot mcp test {}", companion.name).bright_white()
+            );
+        }
+    }
+    Ok(())
+}
+
 // ── Token command ────────────────────────────────────────────────────
 
 /// Print (or rotate) the API access token for this install.
@@ -1328,6 +1449,12 @@ async fn run_serve(
         }
         None => api::ServeBinding::loopback(api_port),
     };
+
+    // Companion apps (OpenDbPylot and friends) this server can host behind its
+    // own auth, so their web UIs are reachable from inside OpenPylot instead of
+    // being a second program on a second, unprotected port.
+    let companion_registry =
+        crate::companions::CompanionRegistry::new(crate::companions::catalogue());
 
     // Per-install token, minted on first run and reused thereafter.
     let api_token = api::auth::ApiToken::load_or_create(&config.data_dir)
@@ -1721,6 +1848,7 @@ async fn run_serve(
         sub_agent_store,
         spawn_conversation_id: spawn_conv_id,
         notification_tx,
+        companions: companion_registry.clone(),
     };
 
     let browser_url = binding.browser_url(&api_token);
@@ -1820,6 +1948,10 @@ async fn run_serve(
     if let Some(handle) = telegram_handle {
         handle.abort();
     }
+
+    // A companion outliving the parent would keep serving with nothing in front
+    // of it, holding its port.
+    companion_registry.stop_all().await;
 
     result
 }

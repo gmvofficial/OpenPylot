@@ -20,6 +20,7 @@ import {
   Wrench,
   Brain,
   Users,
+  Database,
 } from "lucide-react";
 import { cn, truncate, formatRelativeTime } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ const navItems = [
   { href: "/memory", label: "Memory", icon: Brain },
   { href: "/setup", label: "Integrations", icon: Settings2 },
   { href: "/knowledge", label: "Knowledge Base", icon: BookOpen },
+  { href: "/companions", label: "Companions", icon: Database },
   { href: "/tools", label: "Tools & Skills", icon: Wrench },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/settings", label: "Settings", icon: Settings },

@@ -16,6 +16,7 @@ import type {
   SocialPost,
   ToolDefinition,
   Collection,
+  Companion,
   Document,
   SearchKnowledgeResponse,
 } from "@/types";
@@ -538,6 +539,25 @@ class ApiClient {
     }
     // Backend wraps payload in { data: ... }
     return json?.data ?? json;
+  }
+
+  // ── Companions ──────────────────────────────────────────────────
+
+  /** Every companion app and whether it is installed, stopped or running. */
+  async getCompanions(): Promise<Companion[]> {
+    return this.request("/api/companions");
+  }
+
+  /**
+   * Start a companion. Starting one that is already running is a no-op that
+   * returns the same URL, so this is safe to call on every page load.
+   */
+  async startCompanion(name: string): Promise<{ name: string; port: number; url: string }> {
+    return this.request(`/api/companions/${encodeURIComponent(name)}/start`, { method: "POST" });
+  }
+
+  async stopCompanion(name: string): Promise<boolean> {
+    return this.request(`/api/companions/${encodeURIComponent(name)}/stop`, { method: "POST" });
   }
 
   async getSocialCampaigns(): Promise<SocialCampaign[]> {

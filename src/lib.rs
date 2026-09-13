@@ -2,6 +2,7 @@
 
 pub mod agent;
 pub mod api;
+pub mod companions;
 pub mod config;
 pub mod context;
 pub mod document_chunker;

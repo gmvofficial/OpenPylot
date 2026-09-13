@@ -4909,3 +4909,39 @@ pub async fn chat_stream(
             .text("ping"),
     )
 }
+
+// ── Companions ───────────────────────────────────────────────────────
+
+/// List every companion app and whether it is installed, stopped or running.
+pub async fn list_companions(
+    State(state): State<ApiState>,
+) -> Json<ApiResponse<Vec<crate::companions::registry::CompanionStatus>>> {
+    ok(state.companions.list().await)
+}
+
+/// Start a companion and return where the UI should point at it.
+///
+/// Starting one that is already running is a no-op that returns the same URL,
+/// so the UI can call this whenever the page opens.
+pub async fn start_companion(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, (StatusCode, Json<ApiError>)> {
+    match state.companions.start(&name).await {
+        Ok(port) => Ok(ok(serde_json::json!({
+            "name": name,
+            "port": port,
+            "url": format!("{}/{}/", crate::companions::MOUNT_PREFIX, name),
+        }))),
+        Err(e) => Err(err(StatusCode::BAD_GATEWAY, e)),
+    }
+}
+
+/// Stop a companion.
+pub async fn stop_companion(
+    State(state): State<ApiState>,
+    Path(name): Path<String>,
+) -> Json<ApiResponse<bool>> {
+    state.companions.stop(&name).await;
+    ok(true)
+}

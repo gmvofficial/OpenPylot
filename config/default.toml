@@ -67,7 +67,7 @@ wordpress_enabled = false
 
 # --- MCP (Model Context Protocol) ---
 [mcp]
-enabled = false
+enabled = true
 # config_path = "~/.pylot/mcp-servers.json"
 
 # --- Learning / Auto-improvement ---

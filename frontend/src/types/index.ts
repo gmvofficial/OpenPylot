@@ -326,3 +326,17 @@ export interface PaginatedResponse<T> {
   offset: number;
   limit: number;
 }
+
+/** A companion app (OpenDbPylot and friends) hosted inside OpenPylot. */
+export interface Companion {
+  name: string;
+  title: string;
+  description: string;
+  state: "not_installed" | "stopped" | "starting" | "running" | "failed";
+  /** Loopback port the child came up on; present only while running. */
+  port?: number;
+  /** Why it failed to start; present only in the failed state. */
+  error?: string;
+  /** Where to point an iframe; present only while running. */
+  url: string | null;
+}

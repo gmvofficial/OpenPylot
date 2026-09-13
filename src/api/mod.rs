@@ -4,7 +4,7 @@ pub mod ws;
 
 use axum::{
     extract::DefaultBodyLimit,
-    routing::{delete, get, patch, post},
+    routing::{any, delete, get, patch, post},
     Router,
 };
 use serde::{Deserialize, Serialize};
@@ -196,6 +196,8 @@ pub struct ApiState {
     pub spawn_conversation_id: Arc<std::sync::Mutex<Option<String>>>,
     /// Broadcast channel for pushing notifications to connected WebSocket clients.
     pub notification_tx: tokio::sync::broadcast::Sender<String>,
+    /// Companion apps (OpenDbPylot and friends) this server can host and proxy.
+    pub companions: crate::companions::CompanionRegistry,
 }
 
 // ── Router builder ───────────────────────────────────────────────────
@@ -362,6 +364,10 @@ pub fn api_router(
         // Memory v2
         .route("/memory/v2/search", post(handlers::memory_v2_search))
         .route("/memory/v2/units", get(handlers::memory_v2_list))
+        // Companions
+        .route("/companions", get(handlers::list_companions))
+        .route("/companions/{name}/start", post(handlers::start_companion))
+        .route("/companions/{name}/stop", post(handlers::stop_companion))
         // SSE streaming chat
         .route("/chat/stream", post(handlers::chat_stream));
 
@@ -392,12 +398,24 @@ pub fn api_router(
     // would leave uploads completely ungated.
     let uploads_service = Router::new()
         .fallback_service(ServeDir::new(&uploads_dir))
+        .layer(token_gate.clone());
+
+    // Companion reverse proxy. Behind the same token gate as everything else —
+    // a companion binds loopback on an ephemeral port, so this is the only way
+    // to reach it, and it inherits the parent's access control.
+    // A single fallback rather than route patterns: the companion's own paths
+    // are arbitrary, and `/{name}` + `/{name}/{*rest}` misses `/{name}/` — the
+    // exact URL a browser lands on.
+    let companion_proxy = Router::new()
+        .fallback(crate::companions::proxy::handle)
+        .with_state(state.companions.clone())
         .layer(token_gate);
 
     let mut app = Router::new()
         .nest("/api", api_routes)
         .nest("/ws", ws_routes)
         .nest_service("/uploads", uploads_service)
+        .nest_service(crate::companions::MOUNT_PREFIX, companion_proxy)
         .with_state(state)
         .layer(cors)
         .layer(body_limit);
