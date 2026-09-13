@@ -12,8 +12,9 @@
 //! ```
 
 use axum::{
+    body::Bytes,
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
@@ -35,6 +36,10 @@ pub struct WebhookState {
     pub telegram_bot_token: Option<String>,
     /// Optional Telegram chat ID
     pub telegram_chat_id: Option<String>,
+    /// Secrets used to verify that a delivery really came from its provider.
+    /// A provider with no secret here is accepted unverified — see
+    /// [`crate::webhooks::verify`].
+    pub secrets: super::verify::WebhookSecrets,
 }
 
 /// Most recent webhook events retained in memory.
@@ -148,6 +153,11 @@ pub fn webhook_router(state: WebhookState) -> Router {
         .with_state(state)
 }
 
+/// Read a header as a string, if it is present and valid UTF-8.
+fn header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers.get(name).and_then(|v| v.to_str().ok())
+}
+
 // ── Handlers ────────────────────────────────────────────────────────
 
 async fn health_check() -> &'static str {
@@ -221,8 +231,25 @@ async fn handle_gmail_webhook(
 /// Processes PR reviews, issue assignments, and push notifications.
 async fn handle_github_webhook(
     State(state): State<WebhookState>,
-    Json(payload): Json<GitHubWebhookPayload>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> StatusCode {
+    // Verification happens on the raw bytes, before parsing: the signature
+    // covers exactly what was sent, and a re-serialized payload would not match.
+    if let Err(rejection) = super::verify::github(
+        state.secrets.github.as_deref(),
+        header(&headers, "x-hub-signature-256"),
+        &body,
+    ) {
+        tracing::warn!("Rejected a GitHub webhook: {}", rejection.detail());
+        return StatusCode::UNAUTHORIZED;
+    }
+
+    let Ok(payload) = serde_json::from_slice::<GitHubWebhookPayload>(&body) else {
+        tracing::warn!("GitHub webhook body was not the expected JSON");
+        return StatusCode::BAD_REQUEST;
+    };
+
     let action = payload.action.as_deref().unwrap_or("unknown");
     let repo = payload
         .repository
@@ -279,8 +306,33 @@ async fn handle_github_webhook(
 /// Handle Slack events (including URL verification challenge).
 async fn handle_slack_events(
     State(state): State<WebhookState>,
-    Json(payload): Json<SlackEventPayload>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> (StatusCode, Json<serde_json::Value>) {
+    // Slack signs `v0:<timestamp>:<body>`, so the raw bytes and the timestamp
+    // header both have to be in hand before anything is parsed.
+    if let Err(rejection) = super::verify::slack(
+        state.secrets.slack.as_deref(),
+        header(&headers, "x-slack-signature"),
+        header(&headers, "x-slack-request-timestamp"),
+        &body,
+        super::verify::now_unix(),
+    ) {
+        tracing::warn!("Rejected a Slack webhook: {}", rejection.detail());
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": rejection.message() })),
+        );
+    }
+
+    let Ok(payload) = serde_json::from_slice::<SlackEventPayload>(&body) else {
+        tracing::warn!("Slack webhook body was not the expected JSON");
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "malformed payload" })),
+        );
+    };
+
     // Handle URL verification challenge
     if payload.event_type == "url_verification" {
         if let Some(challenge) = payload.challenge {
@@ -379,6 +431,7 @@ mod tests {
             events: Arc::new(Mutex::new(Vec::new())),
             telegram_bot_token: None,
             telegram_chat_id: None,
+            secrets: crate::webhooks::verify::WebhookSecrets::default(),
         }
     }
 
@@ -522,6 +575,7 @@ mod retention_tests {
             events: Arc::new(Mutex::new(Vec::new())),
             telegram_bot_token: None,
             telegram_chat_id: None,
+            secrets: crate::webhooks::verify::WebhookSecrets::default(),
         }
     }
 
@@ -562,5 +616,156 @@ mod retention_tests {
             record_event(&state, event(n)).await;
         }
         assert_eq!(state.events.lock().await.len(), 10);
+    }
+}
+
+#[cfg(test)]
+mod signature_tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    const SECRET: &str = "shhh";
+
+    fn state_with(secrets: crate::webhooks::verify::WebhookSecrets) -> WebhookState {
+        WebhookState {
+            data_dir: std::env::temp_dir(),
+            events: Arc::new(Mutex::new(Vec::new())),
+            telegram_bot_token: None,
+            telegram_chat_id: None,
+            secrets,
+        }
+    }
+
+    fn github_secrets() -> crate::webhooks::verify::WebhookSecrets {
+        crate::webhooks::verify::WebhookSecrets {
+            github: Some(SECRET.into()),
+            slack: None,
+        }
+    }
+
+    fn sign_github(body: &str) -> String {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+        let mut mac = Hmac::<Sha256>::new_from_slice(SECRET.as_bytes()).unwrap();
+        mac.update(body.as_bytes());
+        let hex: String = mac
+            .finalize()
+            .into_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        format!("sha256={hex}")
+    }
+
+    const PR_BODY: &str = r#"{"action":"opened","pull_request":{"number":1,"title":"t","html_url":"u"}}"#;
+
+    async fn post_github(
+        state: WebhookState,
+        body: &str,
+        signature: Option<&str>,
+    ) -> (StatusCode, WebhookState) {
+        let mut request = Request::post("/webhooks/github").header("content-type", "application/json");
+        if let Some(sig) = signature {
+            request = request.header("x-hub-signature-256", sig);
+        }
+        let response = webhook_router(state.clone())
+            .oneshot(request.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap();
+        (response.status(), state)
+    }
+
+    #[tokio::test]
+    async fn a_correctly_signed_github_delivery_is_accepted_and_recorded() {
+        let (status, state) =
+            post_github(state_with(github_secrets()), PR_BODY, Some(&sign_github(PR_BODY))).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(state.events.lock().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_unsigned_github_delivery_is_rejected_when_a_secret_is_set() {
+        let (status, state) = post_github(state_with(github_secrets()), PR_BODY, None).await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(
+            state.events.lock().await.is_empty(),
+            "a forged event must never reach the queue"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_forged_github_delivery_is_rejected() {
+        // Correctly signed for a *different* body — the shape an attacker who
+        // captured one real delivery would produce.
+        let signature = sign_github(PR_BODY);
+        let forged = r#"{"action":"opened","pull_request":{"number":999,"title":"forged","html_url":"u"}}"#;
+
+        let (status, state) = post_github(state_with(github_secrets()), forged, Some(&signature)).await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(state.events.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_unsigned_github_delivery_is_accepted_when_no_secret_is_configured() {
+        // The documented upgrade path: existing installs keep working, and
+        // startup warns that this is what is happening.
+        let (status, state) = post_github(
+            state_with(crate::webhooks::verify::WebhookSecrets::default()),
+            PR_BODY,
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(state.events.lock().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_signed_but_malformed_body_is_a_bad_request_not_a_panic() {
+        let body = "{not json";
+        let (status, state) =
+            post_github(state_with(github_secrets()), body, Some(&sign_github(body))).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(state.events.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_unsigned_slack_event_is_rejected_when_a_secret_is_set() {
+        let state = state_with(crate::webhooks::verify::WebhookSecrets {
+            github: None,
+            slack: Some(SECRET.into()),
+        });
+
+        let response = webhook_router(state.clone())
+            .oneshot(
+                Request::post("/webhooks/slack/events")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"type":"url_verification","challenge":"c"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "even the URL-verification challenge must be signed"
+        );
+    }
+
+    #[tokio::test]
+    async fn health_needs_no_signature() {
+        // Liveness probes do not sign anything.
+        let response = webhook_router(state_with(github_secrets()))
+            .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

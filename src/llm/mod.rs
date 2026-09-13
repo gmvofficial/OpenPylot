@@ -1,4 +1,5 @@
 pub mod openai;
+pub mod providers;
 pub mod anthropic;
 pub mod fallback;
 pub mod lazy;

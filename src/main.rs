@@ -332,6 +332,9 @@ enum McpAction {
         /// Test only this server
         name: Option<String>,
     },
+    /// Serve OpenPylot itself over MCP (stdio), for Claude Desktop, Claude
+    /// Code, or any other MCP host
+    Serve,
 }
 
 #[derive(Subcommand)]
@@ -1031,26 +1034,7 @@ fn build_components(
     config: &AppConfig,
     smart_memory: Option<&Arc<SmartMemory>>,
 ) -> Result<(Arc<dyn LlmProvider>, ToolRegistry, skills::SkillRegistry)> {
-    // Build LLM provider
-    let llm: Arc<dyn LlmProvider> = match config.llm_provider.as_str() {
-        "anthropic" => match config.anthropic_api_key.clone() {
-            Some(api_key) => Arc::new(AnthropicProvider::new(
-                api_key,
-                config.llm_model.clone(),
-                config.llm_max_tokens,
-            )),
-            None => llm_without_key(config)?,
-        },
-        "openai" | _ => match config.openai_api_key.clone() {
-            Some(api_key) => Arc::new(OpenAIProvider::new(
-                api_key,
-                config.llm_model.clone(),
-                config.llm_max_tokens,
-                config.llm_temperature,
-            )),
-            None => llm_without_key(config)?,
-        },
-    };
+    let llm = build_llm(config)?;
 
     let tools = build_tool_registry(config, smart_memory);
 
@@ -1061,46 +1045,79 @@ fn build_components(
     Ok((llm, tools, skill_registry))
 }
 
-/// Called when no API key is configured for the active LLM provider.
+/// Build the configured LLM provider.
 ///
-/// Interactive terminal: prompt once and store the key in the encrypted
-/// secrets vault. Non-interactive (start.sh, Docker, launchd): return a
-/// lazy provider so the server still starts — the key can then be added
-/// from the frontend setup wizard and takes effect without a restart.
-fn llm_without_key(config: &AppConfig) -> Result<Arc<dyn LlmProvider>> {
+/// Every provider goes through the catalogue in [`llm::providers`], so an
+/// unrecognised id is a named error rather than a silent fall-through to
+/// OpenAI followed by a confusing authentication failure.
+///
+/// When no key is available: an interactive terminal is prompted once and the
+/// key stored in the vault; a non-interactive start (Docker, launchd,
+/// `start.sh`) gets a lazy provider so the server still comes up and the key
+/// can be added from the setup wizard without a restart.
+fn build_llm(config: &AppConfig) -> Result<Arc<dyn LlmProvider>> {
     use std::io::IsTerminal;
 
-    let provider = config.llm_provider.as_str();
+    let spec = llm::providers::find(&config.llm_provider).ok_or_else(|| {
+        anyhow::anyhow!("{}", llm::providers::unknown_provider_error(&config.llm_provider))
+    })?;
+
+    // An explicitly configured key beats whatever the vault holds.
+    let configured = match spec.id {
+        "anthropic" => config.anthropic_api_key.clone(),
+        "openai" => config.openai_api_key.clone(),
+        _ => None,
+    };
+
+    if let Some(api_key) = configured.or_else(|| llm::providers::find_key(spec)) {
+        return Ok(llm::providers::build(
+            spec,
+            api_key,
+            config.llm_model.clone(),
+            config.llm_max_tokens,
+            config.llm_temperature,
+            config.llm_base_url.as_deref(),
+        ));
+    }
+
+    // Local servers ignore the Authorization header entirely.
+    if !spec.needs_key {
+        return Ok(llm::providers::build(
+            spec,
+            "not-needed".to_string(),
+            config.llm_model.clone(),
+            config.llm_max_tokens,
+            config.llm_temperature,
+            config.llm_base_url.as_deref(),
+        ));
+    }
 
     if std::io::stdin().is_terminal() && std::io::stderr().is_terminal() {
-        let api_key = prompt_api_key_into_vault(provider)?;
-        let built: Arc<dyn LlmProvider> = match provider {
-            "anthropic" => Arc::new(AnthropicProvider::new(
-                api_key,
-                config.llm_model.clone(),
-                config.llm_max_tokens,
-            )),
-            _ => Arc::new(OpenAIProvider::new(
-                api_key,
-                config.llm_model.clone(),
-                config.llm_max_tokens,
-                config.llm_temperature,
-            )),
-        };
-        return Ok(built);
+        let api_key = prompt_api_key_into_vault(spec.id)?;
+        return Ok(llm::providers::build(
+            spec,
+            api_key,
+            config.llm_model.clone(),
+            config.llm_max_tokens,
+            config.llm_temperature,
+            config.llm_base_url.as_deref(),
+        ));
     }
 
     tracing::warn!(
         "No {} API key configured — starting anyway. Add the key from the web dashboard \
          setup wizard; it will be picked up without a restart.",
-        provider
+        spec.label
     );
-    Ok(Arc::new(llm::lazy::LazyProvider::new(
-        config.llm_provider.clone(),
-        config.llm_model.clone(),
-        config.llm_max_tokens,
-        config.llm_temperature,
-    )))
+    Ok(Arc::new(
+        llm::lazy::LazyProvider::new(
+            spec.id.to_string(),
+            config.llm_model.clone(),
+            config.llm_max_tokens,
+            config.llm_temperature,
+        )
+        .with_base_url(config.llm_base_url.clone()),
+    ))
 }
 
 /// Prompt for an API key on the terminal and persist it to the encrypted vault.
@@ -1164,6 +1181,98 @@ async fn init_smart_memory(config: &AppConfig) -> Option<Arc<SmartMemory>> {
             None
         }
     }
+}
+
+/// `pylot mcp serve` — expose OpenPylot over MCP on stdio.
+///
+/// An unconfigured agent is not fatal: the server still answers `initialize`
+/// and `tools/list` so a host can connect and show what is available, and each
+/// tool reports the missing configuration when called.
+async fn run_mcp_server(config: &AppConfig) -> Result<()> {
+    // The host owns stdout for JSON-RPC, so every log line must go to stderr
+    // or the protocol stream is corrupted.
+    let agent = match build_mcp_agent(config).await {
+        Ok(agent) => Some(agent),
+        Err(e) => {
+            eprintln!("OpenPylot MCP server starting without an agent: {e:#}");
+            None
+        }
+    };
+
+    let state = std::sync::Arc::new(crate::mcp::server::ServerState::new(
+        agent,
+        config.agent_name.clone(),
+    ));
+    crate::mcp::server::serve_stdio(state).await
+}
+
+/// Build the agent the MCP server exposes, including its own MCP clients so a
+/// companion's tools are reachable through this server too.
+async fn build_mcp_agent(config: &AppConfig) -> Result<Agent> {
+    let smart_memory = init_smart_memory(config).await;
+    let (llm, tools, skill_registry) = build_components(config, smart_memory.as_ref())?;
+    let system_prompt = build_system_prompt(config);
+    let memory_provider = smart_memory.map(|sm| sm as Arc<dyn crate::traits::MemoryProvider>);
+
+    let mut agent = Agent::new(
+        llm,
+        tools,
+        skill_registry,
+        system_prompt,
+        config.max_context_messages,
+        config.max_tool_iterations,
+        config.data_dir.clone(),
+        memory_provider,
+    )?;
+
+    // Memory v2 backs the `search_memory` and `remember` tools, so an MCP host
+    // reaches the same long-term memory the terminal and web UI do.
+    if config.memory_enabled {
+        if let Ok(store) =
+            crate::memory_v2::MemoryStore::open(&config.data_dir.join("memory_v2.db"))
+        {
+            let store = Arc::new(store);
+            let embeddings = config.openai_api_key.as_ref().map(|key| {
+                Arc::new(crate::memory_v2::EmbeddingClient::new(
+                    key.clone(),
+                    config.memory_embedding_model.clone(),
+                ))
+            });
+            let retriever = Arc::new(crate::memory_v2::MemoryRetriever::new(
+                store.clone(),
+                embeddings,
+                crate::memory_v2::RetrievalMode::Auto,
+            ));
+            agent.set_memory_v2(store, retriever);
+        }
+    }
+
+    connect_mcp_servers_quietly(config, &mut agent).await;
+    Ok(agent)
+}
+
+/// As `connect_mcp_servers`, but every message goes to stderr — stdout belongs
+/// to the JSON-RPC stream.
+async fn connect_mcp_servers_quietly(config: &AppConfig, agent: &mut Agent) {
+    if !config.mcp_enabled {
+        return;
+    }
+    let path = crate::mcp::config::resolve_path(&config.data_dir, config.mcp_config_path.as_deref());
+    let Ok(file) = crate::mcp::config::load(&path) else {
+        return;
+    };
+    let servers = file.all_servers();
+    if servers.is_empty() {
+        return;
+    }
+
+    let mut registry = crate::mcp::McpRegistry::new();
+    for report in registry.connect_all(&servers).await {
+        if let crate::mcp::registry::ConnectOutcome::Failed(err) = &report.outcome {
+            eprintln!("MCP server '{}' failed to connect: {err}", report.name);
+        }
+    }
+    agent.set_mcp_registry(Arc::new(tokio::sync::Mutex::new(registry)));
 }
 
 // ── Companions command ───────────────────────────────────────────────
@@ -1423,12 +1532,34 @@ async fn run_serve(
 
     // Start webhook server alongside the scheduler
     let webhook_port: u16 = 8443;
+    let webhook_secrets = webhooks::verify::WebhookSecrets {
+        github: config.github_webhook_secret.clone(),
+        slack: config.slack_signing_secret.clone(),
+    };
+    let unverified = webhook_secrets.unverified();
+
     let webhook_state = webhooks::server::WebhookState {
         data_dir: data_dir.clone(),
         events: Arc::new(Mutex::new(Vec::new())),
         telegram_bot_token: config.telegram_bot_token.clone(),
         telegram_chat_id: config.telegram_default_chat_id.clone(),
+        secrets: webhook_secrets,
     };
+
+    // The webhook port has to be publicly reachable, so an unverified provider
+    // means anyone who can reach it can forge that provider's events. Say so
+    // rather than leaving it silent.
+    if !unverified.is_empty() {
+        println!(
+            "{} Webhook signatures not verified for: {}",
+            "⚠".bright_yellow(),
+            unverified.join(", ").bright_yellow(),
+        );
+        println!(
+            "  Anyone who can reach this port can forge those events. Fix with: {}",
+            "pylot config set github.webhook_secret <secret>".bright_white(),
+        );
+    }
 
     println!(
         "{} Webhook server listening on port {}",
@@ -2526,6 +2657,17 @@ async fn run_mcp_command(config: &AppConfig, action: McpAction) -> Result<()> {
                     "pylot config set mcp.enabled true".bright_white()
                 );
             }
+
+            // The other direction, which is easy to miss: this binary is also
+            // an MCP server.
+            println!(
+                "\n  {} OpenPylot can also be used *as* an MCP server. Add to a host's config:",
+                "ℹ".bright_blue()
+            );
+            println!(
+                "    {}",
+                r#"{"openpylot": {"command": "pylot", "args": ["mcp", "serve"]}}"#.dimmed()
+            );
         }
 
         McpAction::Tools => {
@@ -2648,6 +2790,13 @@ async fn run_mcp_command(config: &AppConfig, action: McpAction) -> Result<()> {
             } else {
                 println!("{} No MCP server named '{}'", "⚠".bright_yellow(), name.bright_white());
             }
+        }
+
+        McpAction::Serve => {
+            // stdout is the JSON-RPC channel from here on — nothing may print
+            // to it, so this arm returns before any of the other branches'
+            // `println!`s can run.
+            return run_mcp_server(config).await;
         }
 
         McpAction::Test { name } => {

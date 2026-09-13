@@ -1280,16 +1280,35 @@ fn bullet_list(items: &[String]) -> String {
         .collect::<String>()
 }
 
-/// Models offered by `/model` completion, by provider.
+/// Models offered by `/model` completion, for the active provider.
+///
+/// The provider's catalogue default always leads, so an Ollama or Groq user is
+/// not offered GPT model names — which is what the old `_ =>` arm did.
 fn known_models(provider: &str) -> Vec<String> {
-    match provider {
-        "anthropic" => vec![
-            "claude-opus-5".into(),
-            "claude-sonnet-5".into(),
-            "claude-haiku-4-5-20251001".into(),
-        ],
-        _ => vec!["gpt-5".into(), "gpt-4o".into(), "gpt-4o-mini".into()],
+    let Some(spec) = crate::llm::providers::find(provider) else {
+        return Vec::new();
+    };
+
+    let mut models = vec![spec.default_model.to_string()];
+    // A short hand-maintained list for the providers whose model names people
+    // type often. Anything not listed still works — this only drives
+    // completion, never what can be set.
+    let extra: &[&str] = match spec.id {
+        "anthropic" => &["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"],
+        "openai" => &["gpt-5", "gpt-4o", "gpt-4o-mini"],
+        "ollama" => &["llama3.1", "qwen2.5-coder", "mistral", "phi4"],
+        "groq" => &["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+        "deepseek" => &["deepseek-chat", "deepseek-reasoner"],
+        "mistral" => &["mistral-large-latest", "mistral-small-latest"],
+        "openrouter" => &["anthropic/claude-sonnet-4.5", "openai/gpt-4o", "google/gemini-2.0-flash"],
+        _ => &[],
+    };
+    for model in extra {
+        if !models.iter().any(|m| m == model) {
+            models.push(model.to_string());
+        }
     }
+    models
 }
 
 #[cfg(test)]
@@ -1538,6 +1557,38 @@ mod tests {
     fn known_models_differ_by_provider() {
         assert!(known_models("anthropic").iter().any(|m| m.contains("claude")));
         assert!(known_models("openai").iter().any(|m| m.contains("gpt")));
+    }
+
+    #[test]
+    fn a_local_provider_is_not_offered_hosted_model_names() {
+        // The old `_ =>` arm handed an Ollama user a list of GPT models.
+        let models = known_models("ollama");
+        assert!(models.iter().any(|m| m.contains("llama")), "{models:?}");
+        assert!(!models.iter().any(|m| m.starts_with("gpt-")), "{models:?}");
+    }
+
+    #[test]
+    fn the_catalogue_default_leads_the_list() {
+        for provider in ["anthropic", "openai", "ollama", "groq"] {
+            let spec = crate::llm::providers::find(provider).unwrap();
+            assert_eq!(known_models(provider)[0], spec.default_model);
+        }
+    }
+
+    #[test]
+    fn an_unknown_provider_offers_nothing_rather_than_guessing() {
+        assert!(known_models("not-a-provider").is_empty());
+    }
+
+    #[test]
+    fn the_model_list_has_no_duplicates() {
+        for provider in crate::llm::providers::ids() {
+            let models = known_models(provider);
+            let mut unique = models.clone();
+            unique.sort();
+            unique.dedup();
+            assert_eq!(unique.len(), models.len(), "{provider}: {models:?}");
+        }
     }
 
     // ── Turn completion ──────────────────────────────────────────────

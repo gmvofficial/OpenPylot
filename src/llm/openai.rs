@@ -93,7 +93,19 @@ pub struct OpenAIProvider {
     model: String,
     max_tokens: u32,
     temperature: f64,
+    /// Chat-completions endpoint.
+    ///
+    /// Configurable because the OpenAI wire format is the de-facto standard:
+    /// Ollama, OpenRouter, Groq, Together, DeepSeek, LM Studio and vLLM all
+    /// serve it. Pointing this elsewhere is the whole of what it takes to
+    /// support them, which is why the URL is no longer hardcoded.
+    endpoint: String,
+    /// What to call this provider in errors and the status line.
+    name: String,
 }
+
+/// OpenAI's own chat-completions endpoint.
+pub const OPENAI_ENDPOINT: &str = "https://api.openai.com/v1/chat/completions";
 
 impl OpenAIProvider {
     pub fn new(api_key: String, model: String, max_tokens: u32, temperature: f64) -> Self {
@@ -103,7 +115,25 @@ impl OpenAIProvider {
             model,
             max_tokens,
             temperature,
+            endpoint: OPENAI_ENDPOINT.to_string(),
+            name: "openai".to_string(),
         }
+    }
+
+    /// The resolved chat-completions endpoint. Test-only accessor.
+    #[cfg(test)]
+    pub fn endpoint_for_test(&self) -> &str {
+        &self.endpoint
+    }
+
+    /// Point this provider at an OpenAI-compatible server other than OpenAI.
+    ///
+    /// `base` is the API root (e.g. `http://localhost:11434/v1`); the
+    /// `/chat/completions` path is appended, with or without a trailing slash.
+    pub fn with_endpoint(mut self, base: &str, name: &str) -> Self {
+        self.endpoint = format!("{}/chat/completions", base.trim_end_matches('/'));
+        self.name = name.to_string();
+        self
     }
 
     fn convert_messages(messages: &[Message]) -> Vec<OpenAIMessage> {
@@ -182,12 +212,12 @@ impl LlmProvider for OpenAIProvider {
 
         let response = self
             .client
-            .post("https://api.openai.com/v1/chat/completions")
+            .post(&self.endpoint)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&request)
             .send()
             .await
-            .context("Failed to send request to OpenAI")?;
+            .with_context(|| format!("Failed to reach {} at {}", self.name, self.endpoint))?;
 
         let status = response.status();
         let body = response.text().await.context("Failed to read OpenAI response")?;
@@ -195,10 +225,10 @@ impl LlmProvider for OpenAIProvider {
         if !status.is_success() {
             if let Ok(err) = serde_json::from_str::<OpenAIErrorResponse>(&body) {
                 if let Some(e) = err.error {
-                    anyhow::bail!("OpenAI API error ({}): {}", status, e.message);
+                    anyhow::bail!("{} API error ({}): {}", self.name, status, e.message);
                 }
             }
-            anyhow::bail!("OpenAI API error ({}): {}", status, body);
+            anyhow::bail!("{} API error ({}): {}", self.name, status, body);
         }
 
         let resp: OpenAIResponse =
@@ -235,7 +265,7 @@ impl LlmProvider for OpenAIProvider {
     }
 
     fn name(&self) -> &str {
-        "OpenAI"
+        &self.name
     }
 
     fn model(&self) -> &str {
@@ -263,17 +293,17 @@ impl LlmProvider for OpenAIProvider {
 
         let response = self
             .client
-            .post("https://api.openai.com/v1/chat/completions")
+            .post(&self.endpoint)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&request)
             .send()
             .await
-            .context("Failed to send streaming request to OpenAI")?;
+            .with_context(|| format!("Failed to reach {} at {} (streaming)", self.name, self.endpoint))?;
 
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("OpenAI streaming API error ({}): {}", status, body);
+            anyhow::bail!("{} streaming API error ({}): {}", self.name, status, body);
         }
 
         let mut full_text = String::new();

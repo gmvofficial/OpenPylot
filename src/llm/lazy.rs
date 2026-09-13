@@ -13,6 +13,7 @@ use tokio::sync::RwLock;
 
 use crate::llm::anthropic::AnthropicProvider;
 use crate::llm::openai::OpenAIProvider;
+use crate::llm::providers::{self, Kind, Provider};
 use crate::llm::{LlmProvider, LlmResponse, Message};
 use crate::streaming::StreamSender;
 use crate::tools::ToolDefinition;
@@ -22,6 +23,9 @@ pub struct LazyProvider {
     model: String,
     max_tokens: u32,
     temperature: f64,
+    /// User-supplied API root, from `llm.base_url`. Lets `custom` be pointed
+    /// anywhere and lets a hosted provider be aimed at a proxy.
+    base_url: Option<String>,
     inner: RwLock<Option<Arc<dyn LlmProvider>>>,
 }
 
@@ -32,53 +36,83 @@ impl LazyProvider {
             model,
             max_tokens,
             temperature,
+            base_url: None,
             inner: RwLock::new(None),
         }
     }
 
-    fn find_key(&self) -> Option<String> {
-        let (env_key, vault_key) = match self.provider.as_str() {
-            "anthropic" => ("ANTHROPIC_API_KEY", "llm.anthropic.api_key"),
-            _ => ("OPENAI_API_KEY", "llm.openai.api_key"),
-        };
-        if let Ok(v) = std::env::var(env_key) {
-            if !v.is_empty() {
-                return Some(v);
+    pub fn with_base_url(mut self, base_url: Option<String>) -> Self {
+        self.base_url = base_url;
+        self
+    }
+
+    /// Find this provider's API key, from the environment first and the
+    /// encrypted vault second.
+    fn find_key(&self, spec: &Provider) -> Option<String> {
+        if let Ok(value) = std::env::var(spec.env_key) {
+            if !value.is_empty() {
+                return Some(value);
             }
         }
         crate::secrets::SecretsVault::open(&crate::secrets::default_secrets_path(), None)
             .ok()
-            .and_then(|v| v.get(vault_key))
+            .and_then(|v| v.get(spec.vault_key))
     }
 
     async fn resolve(&self) -> Result<Arc<dyn LlmProvider>> {
         if let Some(p) = self.inner.read().await.as_ref() {
             return Ok(Arc::clone(p));
         }
-        let Some(api_key) = self.find_key() else {
-            return Err(anyhow!(
-                "No {} API key configured yet. Add it from the web dashboard setup wizard, \
-                 or run 'pylot init' in a terminal to store it in the encrypted vault.",
-                self.provider
-            ));
+
+        // Exhaustive, not `_ => OpenAI`. A typo used to build an OpenAI client
+        // that then failed with an authentication error about a key the user
+        // had never been asked for.
+        let spec = providers::find(&self.provider)
+            .ok_or_else(|| anyhow!("{}", providers::unknown_provider_error(&self.provider)))?;
+
+        let api_key = match self.find_key(spec) {
+            Some(key) => key,
+            None if !spec.needs_key => {
+                // Ollama and LM Studio ignore the header; send a placeholder
+                // rather than refusing to start.
+                "not-needed".to_string()
+            }
+            None => {
+                return Err(anyhow!(
+                    "No {} API key configured yet. Add it from the web dashboard setup wizard, \
+                     run 'pylot init' to store it in the encrypted vault, or set {}.",
+                    spec.label,
+                    spec.env_key
+                ));
+            }
         };
-        let built: Arc<dyn LlmProvider> = match self.provider.as_str() {
-            "anthropic" => Arc::new(AnthropicProvider::new(
+
+        let base_url = providers::resolve_base_url(spec, self.base_url.as_deref());
+
+        let built: Arc<dyn LlmProvider> = match spec.kind {
+            Kind::Anthropic => Arc::new(AnthropicProvider::new(
                 api_key,
                 self.model.clone(),
                 self.max_tokens,
             )),
-            _ => Arc::new(OpenAIProvider::new(
-                api_key,
-                self.model.clone(),
-                self.max_tokens,
-                self.temperature,
-            )),
+            Kind::OpenAiCompatible => {
+                let provider = OpenAIProvider::new(
+                    api_key,
+                    self.model.clone(),
+                    self.max_tokens,
+                    self.temperature,
+                );
+                Arc::new(match base_url {
+                    Some(url) => provider.with_endpoint(&url, spec.id),
+                    None => provider,
+                })
+            }
         };
+
         *self.inner.write().await = Some(Arc::clone(&built));
         tracing::info!(
-            "LLM provider '{}' configured from vault — picked up without restart",
-            self.provider
+            "LLM provider '{}' configured — picked up without restart",
+            spec.id
         );
         Ok(built)
     }

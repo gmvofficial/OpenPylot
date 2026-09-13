@@ -216,131 +216,114 @@ impl InitWizard {
             "─".repeat(40).dimmed()
         );
 
-        let providers = vec![
-            "OpenAI (GPT-4o, GPT-4.1)",
-            "Anthropic (Claude Sonnet 4, Claude Opus 4)",
-            "Ollama (Local — free, private)",
-            "Skip for now",
-        ];
+        // Driven by the catalogue, so a provider added there shows up here
+        // without a second hand-maintained list drifting out of sync.
+        let catalogue = crate::llm::providers::PROVIDERS;
+        let mut choices: Vec<String> = catalogue.iter().map(|p| p.label.to_string()).collect();
+        choices.push("Skip for now".to_string());
 
         let selection = Select::new()
             .with_prompt("Which LLM provider would you like to use?")
-            .items(&providers)
+            .items(&choices)
             .default(0)
             .interact()
             .context("Failed to get provider selection")?;
 
-        let (provider, model) = match selection {
-            0 => {
-                self.setup_llm_provider(vault, "openai")?;
-                let models = vec![
-                    "gpt-4o (recommended)",
-                    "gpt-4o-mini (faster, cheaper)",
-                    "gpt-4.1 (latest)",
-                ];
-                let model_idx = Select::new()
-                    .with_prompt("Select default model")
-                    .items(&models)
-                    .default(0)
-                    .interact()?;
-                let model = match model_idx {
-                    0 => "gpt-4o",
-                    1 => "gpt-4o-mini",
-                    2 => "gpt-4.1",
-                    _ => "gpt-4o",
-                };
-                ("openai".to_string(), model.to_string())
-            }
-            1 => {
-                self.setup_llm_provider(vault, "anthropic")?;
-                let models = vec![
-                    "claude-sonnet-4-20250514 (recommended)",
-                    "claude-opus-4-20250514 (most powerful)",
-                ];
-                let model_idx = Select::new()
-                    .with_prompt("Select default model")
-                    .items(&models)
-                    .default(0)
-                    .interact()?;
-                let model = match model_idx {
-                    0 => "claude-sonnet-4-20250514",
-                    1 => "claude-opus-4-20250514",
-                    _ => "claude-sonnet-4-20250514",
-                };
-                ("anthropic".to_string(), model.to_string())
-            }
-            2 => {
-                println!(
-                    "  {} Ollama uses local models — no API key needed.",
-                    "ℹ".bright_blue()
-                );
-                println!(
-                    "  {} Make sure Ollama is running: {}",
-                    "→".dimmed(),
-                    "ollama serve".bright_green()
-                );
-                ("ollama".to_string(), "llama3.1".to_string())
-            }
-            _ => {
-                println!(
-                    "  {} Skipped. You can configure later with: {}",
-                    "⏭".dimmed(),
-                    "pylot init --only openai".bright_green()
-                );
-                ("openai".to_string(), "gpt-4o".to_string())
-            }
+        let Some(spec) = catalogue.get(selection) else {
+            println!(
+                "  {} Skipped. Configure later with: {}",
+                "⏭".dimmed(),
+                "pylot init --only openai".bright_green()
+            );
+            return Ok(("openai".to_string(), "gpt-4o".to_string()));
         };
+
+        if spec.needs_key {
+            self.setup_llm_provider(vault, spec.id)?;
+        } else {
+            println!(
+                "  {} {} runs locally — no API key needed.",
+                "ℹ".bright_blue(),
+                spec.label
+            );
+            if let Some(url) = spec.base_url {
+                println!(
+                    "  {} Make sure it is running and reachable at {}",
+                    "→".dimmed(),
+                    url.bright_green()
+                );
+            }
+        }
+
+        // A custom endpoint is useless without its URL, so ask for it here
+        // rather than letting the wizard finish with an unusable config.
+        if spec.id == "custom" {
+            let base_url: String = Input::new()
+                .with_prompt("API base URL (e.g. http://localhost:8000/v1)")
+                .interact_text()
+                .context("Failed to read base URL")?;
+            if !base_url.trim().is_empty() {
+                vault.set("LLM_BASE_URL", base_url.trim())?;
+            }
+        }
+
+        let model: String = Input::new()
+            .with_prompt("Default model")
+            .default(spec.default_model.to_string())
+            .interact_text()
+            .context("Failed to read model name")?;
+
+        let provider = spec.id.to_string();
 
         Ok((provider, model))
     }
 
+    /// Prompt for a provider's API key and store it in the encrypted vault.
+    ///
+    /// Catalogue-driven, so every provider that needs a key gets a prompt —
+    /// the previous `match` had arms for OpenAI and Anthropic only and silently
+    /// did nothing for anything else.
     fn setup_llm_provider(&self, vault: &mut SecretsVault, provider: &str) -> Result<()> {
-        match provider {
-            "openai" => {
-                let api_key: String = Password::new()
-                    .with_prompt("Enter your OpenAI API key")
-                    .interact()
-                    .context("Failed to read API key")?;
-
-                if api_key.is_empty() {
-                    println!("  {} No key provided, skipping.", "⏭".dimmed());
-                    return Ok(());
-                }
-
-                let spinner = self.spinner("Validating API key...");
-                // Validate key format
-                if api_key.starts_with("sk-") || api_key.starts_with("sk-proj-") {
-                    spinner.finish_with_message("✅ API key format looks valid");
-                } else {
-                    spinner.finish_with_message("⚠ Key doesn't start with 'sk-' — may not work");
-                }
-
-                vault.set("llm.openai.api_key", &api_key)?;
-            }
-            "anthropic" => {
-                let api_key: String = Password::new()
-                    .with_prompt("Enter your Anthropic API key")
-                    .interact()
-                    .context("Failed to read API key")?;
-
-                if api_key.is_empty() {
-                    println!("  {} No key provided, skipping.", "⏭".dimmed());
-                    return Ok(());
-                }
-
-                let spinner = self.spinner("Validating API key...");
-                if api_key.starts_with("sk-ant-") {
-                    spinner.finish_with_message("✅ API key format looks valid");
-                } else {
-                    spinner.finish_with_message(
-                        "⚠ Key doesn't start with 'sk-ant-' — may not work",
-                    );
-                }
-
-                vault.set("llm.anthropic.api_key", &api_key)?;
-            }
-            _ => {}
+        let Some(spec) = crate::llm::providers::find(provider) else {
+            println!(
+                "  {} {}",
+                "⚠".bright_yellow(),
+                crate::llm::providers::unknown_provider_error(provider)
+            );
+            return Ok(());
+        };
+        if !spec.needs_key {
+            return Ok(());
         }
+
+        let api_key: String = Password::new()
+            .with_prompt(format!("Enter your {} API key", spec.label))
+            .interact()
+            .context("Failed to read API key")?;
+
+        if api_key.trim().is_empty() {
+            println!("  {} No key provided, skipping.", "⏭".dimmed());
+            return Ok(());
+        }
+
+        // A shape check, not a validation: it catches a pasted wrong value
+        // immediately instead of at the first request.
+        let expected_prefix = match spec.id {
+            "openai" => Some("sk-"),
+            "anthropic" => Some("sk-ant-"),
+            "openrouter" => Some("sk-or-"),
+            "groq" => Some("gsk_"),
+            _ => None,
+        };
+        let spinner = self.spinner("Checking the key...");
+        match expected_prefix {
+            Some(prefix) if !api_key.starts_with(prefix) => spinner.finish_with_message(format!(
+                "⚠ Key doesn't start with '{prefix}' — it may not work"
+            )),
+            _ => spinner.finish_with_message("✅ Key stored"),
+        }
+
+        vault.set(spec.vault_key, api_key.trim())?;
         Ok(())
     }
 

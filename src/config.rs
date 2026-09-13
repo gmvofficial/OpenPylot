@@ -16,6 +16,11 @@ pub struct AppConfig {
 
     // LLM
     pub llm_provider: String,
+    /// API root override for an OpenAI-compatible provider.
+    ///
+    /// Required for `custom`; optional elsewhere, where it points a known
+    /// provider at a proxy or another machine (an Ollama host, say).
+    pub llm_base_url: Option<String>,
     pub llm_model: String,
     pub llm_max_tokens: u32,
     pub llm_temperature: f64,
@@ -40,6 +45,13 @@ pub struct AppConfig {
     pub telegram_enabled: bool,
     pub telegram_bot_token: Option<String>,
     pub telegram_default_chat_id: Option<String>,
+
+    /// Secret GitHub signs webhook deliveries with (`X-Hub-Signature-256`).
+    /// Without it, inbound GitHub webhooks cannot be verified and are accepted
+    /// unchecked — see [`crate::webhooks::verify`].
+    pub github_webhook_secret: Option<String>,
+    /// Slack signing secret (`X-Slack-Signature`). Same caveat as above.
+    pub slack_signing_secret: Option<String>,
 
     // WhatsApp (Twilio)
     pub whatsapp_enabled: bool,
@@ -179,6 +191,7 @@ struct AgentToml {
 #[derive(Debug, Deserialize)]
 struct LlmToml {
     provider: Option<String>,
+    base_url: Option<String>,
     model: Option<String>,
     max_tokens: Option<u32>,
     temperature: Option<f64>,
@@ -309,6 +322,8 @@ fn env_to_vault_key(env_key: &str) -> Option<&'static str> {
         "DISCORD_CHANNEL_ID" => Some("discord.channel_id"),
         "DISCORD_WEBHOOK_URL" => Some("discord.webhook_url"),
         "SLACK_BOT_TOKEN" => Some("slack.bot_token"),
+        "SLACK_SIGNING_SECRET" => Some("slack.signing_secret"),
+        "GITHUB_WEBHOOK_SECRET" => Some("github.webhook_secret"),
         "SLACK_CHANNEL" => Some("slack.channel"),
         "MEDIUM_TOKEN" => Some("medium.token"),
         "DEVTO_API_KEY" => Some("devto.api_key"),
@@ -381,6 +396,7 @@ impl AppConfig {
         });
         let llm = toml_cfg.llm.unwrap_or(LlmToml {
             provider: None,
+            base_url: None,
             model: None,
             max_tokens: None,
             temperature: None,
@@ -527,6 +543,7 @@ impl AppConfig {
             max_context_messages: agent.max_context_messages.unwrap_or(50),
             max_tool_iterations: agent.max_tool_iterations.unwrap_or(10),
 
+            llm_base_url: secret_opt("LLM_BASE_URL", &vault).or(llm.base_url),
             llm_provider: provider,
             llm_model: model,
             llm_max_tokens: llm.max_tokens.unwrap_or(4096),
@@ -550,6 +567,8 @@ impl AppConfig {
             telegram_enabled,
             telegram_bot_token: secret_opt("TELEGRAM_BOT_TOKEN", &vault),
             telegram_default_chat_id: secret_opt("TELEGRAM_DEFAULT_CHAT_ID", &vault),
+            github_webhook_secret: secret_opt("GITHUB_WEBHOOK_SECRET", &vault),
+            slack_signing_secret: secret_opt("SLACK_SIGNING_SECRET", &vault),
 
             whatsapp_enabled,
             twilio_account_sid: secret_opt("TWILIO_ACCOUNT_SID", &vault),
