@@ -6,7 +6,67 @@
 @import "katex/dist/katex.min.css";
 
 :root {
-  /* Color Palette — Dark mode (default) */
+  /* ── Light palette (the default) ────────────────────────────────────
+     Every token is defined here, unconditionally. The dark blocks below
+     only *redefine* them. A colour that exists solely inside a media query
+     or a [class] block never applies in the un-stamped state, which is the
+     classic half-themed-page bug. */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f7f8f9;
+  --bg-tertiary: #eef0f2;
+  --bg-input: #ffffff;
+
+  --text-primary: #14181d;
+  --text-secondary: #4a545e;
+  --text-muted: #78828c;
+
+  --accent-primary: #2563eb;
+  --accent-success: #15803d;
+  --accent-warning: #b45309;
+  --accent-error: #b91c1c;
+  --accent-info: #0e7490;
+
+  --border: #e2e5e9;
+  --border-hover: #cbd1d8;
+
+  --shadow-sm: 0 1px 2px rgba(20, 24, 29, 0.06);
+  --shadow-md: 0 4px 16px -4px rgba(20, 24, 29, 0.12);
+
+  /* Layout — theme-independent. */
+  --sidebar-width: 280px;
+  --header-height: 56px;
+  --chat-max-width: 900px;
+  --side-panel-width: 400px;
+}
+
+/* Dark tokens, shared by "system prefers dark" and an explicit dark choice. */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1e1e1e;
+    --bg-input: #1a1a1a;
+
+    --text-primary: #e5e5e5;
+    --text-secondary: #a3a3a3;
+    --text-muted: #737373;
+
+    --accent-primary: #3b82f6;
+    --accent-success: #22c55e;
+    --accent-warning: #f59e0b;
+    --accent-error: #ef4444;
+    --accent-info: #06b6d4;
+
+    --border: #262626;
+    --border-hover: #3a3a3a;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 16px -4px rgba(0, 0, 0, 0.7);
+  }
+}
+
+/* An explicit dark choice wins over a light OS setting. */
+:root.dark {
   --bg-primary: #0a0a0a;
   --bg-secondary: #141414;
   --bg-tertiary: #1e1e1e;
@@ -25,11 +85,8 @@
   --border: #262626;
   --border-hover: #3a3a3a;
 
-  /* Layout */
-  --sidebar-width: 280px;
-  --header-height: 56px;
-  --chat-max-width: 900px;
-  --side-panel-width: 400px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px -4px rgba(0, 0, 0, 0.7);
 }
 
 @layer base {
@@ -38,7 +95,17 @@
   }
 
   html {
+    color-scheme: light;
+  }
+
+  html.dark {
     color-scheme: dark;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    html:not(.light) {
+      color-scheme: dark;
+    }
   }
 
   body {
@@ -67,7 +134,7 @@
 
   /* Selection */
   ::selection {
-    background: rgba(59, 130, 246, 0.3);
+    background: color-mix(in srgb, var(--accent-primary) 28%, transparent);
     color: var(--text-primary);
   }
 }
@@ -128,8 +195,8 @@
   }
 
   .prose-chat blockquote {
-    @apply border-l-2 border-accent pl-4 italic text-foreground-secondary mb-3;
-    border-color: rgba(99, 102, 241, 0.4);
+    @apply border-l-2 pl-4 italic text-foreground-secondary mb-3;
+    border-color: color-mix(in srgb, var(--accent-primary) 40%, transparent);
   }
 
   .prose-chat h1, .prose-chat h2, .prose-chat h3 {

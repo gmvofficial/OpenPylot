@@ -6,6 +6,7 @@ import { Bell, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useNotificationStore } from "@/stores/notifications";
+import { ThemeToggle } from "./theme-toggle";
 import Link from "next/link";
 
 const pageTitles: Record<string, string> = {
@@ -19,6 +20,7 @@ const pageTitles: Record<string, string> = {
   "/dashboard/logs": "Logs",
   "/settings": "Settings",
   "/settings/memory": "Memory Management",
+  "/companions": "Companions",
 };
 
 export function Header() {
@@ -54,6 +56,8 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
+        <ThemeToggle />
+
         {/* Notification bell */}
         <div className="relative" ref={dropdownRef}>
           <Button

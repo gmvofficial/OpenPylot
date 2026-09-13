@@ -9,6 +9,7 @@ import { useNotificationStore } from "@/stores/notifications";
 import { useAppStore } from "@/stores/app";
 import { useToastStore } from "@/stores/toast";
 import { Toast, ToastContainer } from "@/components/ui/toast";
+import { CommandPalette } from "@/components/ui/command-palette";
 import { authHeaders, getToken, initToken } from "@/lib/token";
 
 function ToastLayer() {
@@ -122,6 +123,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">{children}</main>
       </div>
       <ToastLayer />
+      <CommandPalette />
     </div>
   );
 }

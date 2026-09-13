@@ -26,6 +26,7 @@ interface ChatState {
   connect: () => void;
   disconnect: () => void;
   sendMessage: (content: string) => void;
+  stopStreaming: () => void;
   loadConversations: () => Promise<void>;
   loadConversation: (id: string) => Promise<void>;
   newConversation: () => void;
@@ -224,6 +225,41 @@ export const useChatStore = create<ChatState>((set, get) => ({
     );
 
     set({ _sseAbort: abort });
+  },
+
+  /**
+   * Cancel an in-flight response.
+   *
+   * Whatever has already streamed is kept as the assistant's turn rather than
+   * discarded — the user read it, and throwing it away loses real output. The
+   * abort drops the HTTP request, so the backend stops being billed for tokens
+   * nobody is waiting for.
+   */
+  stopStreaming() {
+    const { _sseAbort, streamingContent, streamingToolCalls, messages } = get();
+    if (!_sseAbort) return;
+
+    _sseAbort.abort();
+
+    const partial = streamingContent.trim();
+    set({
+      messages: partial
+        ? [
+            ...messages,
+            {
+              id: `partial-${Date.now()}`,
+              role: "assistant" as const,
+              content: partial,
+              timestamp: new Date().toISOString(),
+              toolCalls: streamingToolCalls,
+            },
+          ]
+        : messages,
+      isStreaming: false,
+      streamingContent: "",
+      streamingToolCalls: [],
+      _sseAbort: null,
+    });
   },
 
   async loadConversations() {
