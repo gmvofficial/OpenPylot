@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import type { Collection, Document, SearchKnowledgeResponse, SearchResult } from "@/types";
 import { apiClient } from "@/lib/api";
+import { authHeaders } from "@/lib/token";
 import { useToastStore } from "@/stores/toast";
 import { formatRelativeTime, formatBytes, getApiBaseUrl } from "@/lib/utils";
 import { MarkdownRenderer } from "@/components/chat/markdown-renderer";
@@ -233,7 +234,7 @@ function UploadModal({
 
       const response = await fetch(`${backendUrl}/api/knowledge/documents/upload-stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           collection_id: collectionId,
           title: title.trim(),
@@ -335,6 +336,7 @@ function UploadModal({
         
         const response = await fetch(`${backendUrl}/api/knowledge/extract-document`, {
           method: 'POST',
+          headers: authHeaders(),
           body: formData,
           // Add a longer timeout for large files
           signal: AbortSignal.timeout(300000), // 5 minutes for large documents

@@ -110,11 +110,64 @@ impl McpRegistry {
         self.clients.keys().cloned().collect()
     }
 
+    /// Connect every enabled server in `servers`, returning a per-server report.
+    ///
+    /// One server failing to start must not stop the others — a misconfigured
+    /// or not-yet-installed MCP binary should cost you that server's tools, not
+    /// the whole agent. Failures are reported, not returned as an error.
+    pub async fn connect_all(&mut self, servers: &[McpServerConfig]) -> Vec<ConnectReport> {
+        let mut reports = Vec::with_capacity(servers.len());
+        for config in servers {
+            if !config.enabled {
+                reports.push(ConnectReport {
+                    name: config.name.clone(),
+                    outcome: ConnectOutcome::Disabled,
+                });
+                continue;
+            }
+            let outcome = match self.add_server(config).await {
+                Ok(count) => {
+                    tracing::info!("MCP server '{}' connected ({count} tools)", config.name);
+                    ConnectOutcome::Connected { tools: count }
+                }
+                Err(e) => {
+                    tracing::warn!("MCP server '{}' failed to connect: {e}", config.name);
+                    ConnectOutcome::Failed(e)
+                }
+            };
+            reports.push(ConnectReport {
+                name: config.name.clone(),
+                outcome,
+            });
+        }
+        reports
+    }
+
     /// Close all server connections.
     pub async fn close_all(&self) {
         for client in self.clients.values() {
             let _ = client.close().await;
         }
+    }
+}
+
+/// What happened when we tried to bring one configured server up.
+#[derive(Debug, Clone)]
+pub struct ConnectReport {
+    pub name: String,
+    pub outcome: ConnectOutcome,
+}
+
+#[derive(Debug, Clone)]
+pub enum ConnectOutcome {
+    Connected { tools: usize },
+    Disabled,
+    Failed(String),
+}
+
+impl ConnectReport {
+    pub fn is_connected(&self) -> bool {
+        matches!(self.outcome, ConnectOutcome::Connected { .. })
     }
 }
 
@@ -141,5 +194,47 @@ mod tests {
         let reg = McpRegistry::new();
         assert_eq!(reg.tool_count(), 0);
         assert_eq!(reg.server_count(), 0);
+    }
+
+    fn stdio(name: &str, command: &str, enabled: bool) -> McpServerConfig {
+        McpServerConfig {
+            name: name.to_string(),
+            transport: McpTransportType::Stdio,
+            command: Some(command.to_string()),
+            args: Some(vec![]),
+            url: None,
+            headers: None,
+            env: None,
+            enabled,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_disabled_server_is_reported_without_being_launched() {
+        let mut reg = McpRegistry::new();
+        let reports = reg
+            .connect_all(&[stdio("off", "definitely-not-a-real-binary", false)])
+            .await;
+
+        assert_eq!(reports.len(), 1);
+        assert!(matches!(reports[0].outcome, ConnectOutcome::Disabled));
+        assert_eq!(reg.server_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn one_failing_server_does_not_abort_the_rest() {
+        // The whole point of per-server reports: a missing binary costs you that
+        // server's tools, not every other server's.
+        let mut reg = McpRegistry::new();
+        let reports = reg
+            .connect_all(&[
+                stdio("broken", "openpylot-no-such-mcp-binary", true),
+                stdio("also-broken", "openpylot-another-missing-binary", true),
+            ])
+            .await;
+
+        assert_eq!(reports.len(), 2, "every server must be reported on");
+        assert!(reports.iter().all(|r| matches!(r.outcome, ConnectOutcome::Failed(_))));
+        assert!(reports.iter().all(|r| !r.is_connected()));
     }
 }

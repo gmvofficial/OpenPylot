@@ -2253,7 +2253,7 @@ pub async fn get_settings(State(state): State<ApiState>) -> Json<ApiResponse<Age
 pub async fn update_settings(
     State(_state): State<ApiState>,
     Json(body): Json<serde_json::Value>,
-) -> Json<ApiResponse<bool>> {
+) -> Result<Json<ApiResponse<bool>>, (StatusCode, Json<ApiError>)> {
     let mut updates: Vec<(&str, String)> = vec![];
 
     if let Some(name) = body.get("agent_name").and_then(|v| v.as_str()) {
@@ -2269,13 +2269,26 @@ pub async fn update_settings(
         updates.push(("llm.temperature", format!("{:.1}", temp)));
     }
 
-    if !updates.is_empty() {
-        let refs: Vec<(&str, &str)> = updates.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        update_toml_config(&refs);
+    if updates.is_empty() {
+        return Ok(ok(true));
     }
 
-    tracing::info!("Settings updated via API");
-    ok(true)
+    let refs: Vec<(&str, &str)> = updates.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    // Report the real outcome. Answering `ok(true)` after a failed write told
+    // the UI the change had been saved when it had not.
+    match crate::config::set_config_values(&refs) {
+        Ok(path) => {
+            tracing::info!("Settings updated via API ({})", path.display());
+            Ok(ok(true))
+        }
+        Err(e) => {
+            tracing::error!("Failed to persist settings update: {e:#}");
+            Err(err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Could not save settings: {e}"),
+            ))
+        }
+    }
 }
 
 // ── Memory ───────────────────────────────────────────────────────────
@@ -2772,43 +2785,18 @@ pub async fn validate_api_key(
 
 /// Helper to update the TOML config file with key-value pairs.
 /// Keys use dot notation like "llm.provider", "agent.name".
+/// Apply `section.field = value` updates to the user's config file.
+///
+/// Delegates to [`crate::config::set_config_values`], which resolves the same
+/// path the loader reads and writes typed TOML scalars. This used to write only
+/// to a relative `config/default.toml` and return silently when that path did
+/// not exist — so every settings change from the web UI of an installed binary
+/// was quietly discarded.
 fn update_toml_config(updates: &[(&str, &str)]) {
-    let config_path = std::path::PathBuf::from("config/default.toml");
-    if !config_path.exists() {
-        return;
+    match crate::config::set_config_values(updates) {
+        Ok(path) => tracing::info!("Config updated at {}", path.display()),
+        Err(e) => tracing::error!("Failed to persist config update: {e:#}"),
     }
-
-    let content = match std::fs::read_to_string(&config_path) {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-
-    let mut doc = match content.parse::<toml_edit::DocumentMut>() {
-        Ok(d) => d,
-        Err(_) => return,
-    };
-
-    for (key, value) in updates {
-        let parts: Vec<&str> = key.split('.').collect();
-        if parts.len() == 2 {
-            let section = parts[0];
-            let field = parts[1];
-
-            // Ensure section exists
-            if doc.get(section).is_none() {
-                doc[section] = toml_edit::Item::Table(toml_edit::Table::new());
-            }
-
-            // Set value (try bool first, then string)
-            if *value == "true" || *value == "false" {
-                doc[section][field] = toml_edit::value(*value == "true");
-            } else {
-                doc[section][field] = toml_edit::value(*value);
-            }
-        }
-    }
-
-    let _ = std::fs::write(&config_path, doc.to_string());
 }
 
 // ── Knowledge Base ────────────────────────────────────────────────────

@@ -27,6 +27,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useToastStore } from "@/stores/toast";
+import { authHeaders } from "@/lib/token";
 
 const STEPS = [
   { id: "welcome", label: "Welcome" },
@@ -122,7 +123,7 @@ export default function SetupWizardPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${window.location.origin}/api/setup/status`);
+        const res = await fetch(`${window.location.origin}/api/setup/status`, { headers: authHeaders() });
         if (res.ok) {
           const json = await res.json();
           const data = json.data ?? json;
@@ -131,7 +132,7 @@ export default function SetupWizardPage() {
           // Pre-fill from existing settings
           if (data.llm_configured) {
             try {
-              const settingsRes = await fetch(`${window.location.origin}/api/settings`);
+              const settingsRes = await fetch(`${window.location.origin}/api/settings`, { headers: authHeaders() });
               if (settingsRes.ok) {
                 const sJson = await settingsRes.json();
                 const settings = sJson.data ?? sJson;
@@ -157,7 +158,7 @@ export default function SetupWizardPage() {
     try {
       const res = await fetch(`${window.location.origin}/api/setup/validate-key`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           provider: state.provider,
           api_key: state.apiKey,
@@ -182,7 +183,7 @@ export default function SetupWizardPage() {
     try {
       const res = await fetch(`${window.location.origin}/api/setup/llm`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           provider: state.provider,
           model: state.model,
@@ -211,7 +212,7 @@ export default function SetupWizardPage() {
 
       const res = await fetch(`${window.location.origin}/api/setup/identity`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           agent_name: state.agentName,
           user_name: state.userName,
@@ -236,7 +237,7 @@ export default function SetupWizardPage() {
     try {
       const res = await fetch(`${window.location.origin}/api/setup/telegram`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           bot_token: state.telegramToken,
           chat_id: state.telegramChatId,
@@ -675,7 +676,7 @@ export default function SetupWizardPage() {
                         try {
                           const res = await fetch(
                             `${window.location.origin}/api/integrations/google_calendar/connect`,
-                            { method: "POST" }
+                            { method: "POST", headers: authHeaders() }
                           );
                           const json = await res.json();
                           const data = json.data ?? json;

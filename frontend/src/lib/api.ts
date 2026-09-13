@@ -20,6 +20,7 @@ import type {
   SearchKnowledgeResponse,
 } from "@/types";
 import { getApiBaseUrl } from "./utils";
+import { authHeaders, withToken } from "./token";
 
 /**
  * Structured API error mirroring the Rust `ApiError` shape:
@@ -84,11 +85,12 @@ class ApiClient {
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const res = await fetch(url, {
+      ...options,
       headers: {
         "Content-Type": "application/json",
+        ...authHeaders(),
         ...options?.headers,
       },
-      ...options,
     });
 
     if (!res.ok) {
@@ -165,7 +167,7 @@ class ApiClient {
 
     fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({
         message,
         conversation_id: conversationId ?? undefined,
@@ -527,6 +529,7 @@ class ApiClient {
     // the browser to set the multipart boundary itself.
     const res = await fetch(`${this.baseUrl}/api/social/upload`, {
       method: "POST",
+      headers: authHeaders(),
       body: fd,
     });
     const json = await res.json().catch(() => ({}));
@@ -698,6 +701,19 @@ class ApiClient {
   async disconnectSocialPlatform(platform: string) {
     return this.request(`/api/social/disconnect/${platform}`, { method: "POST" });
   }
+}
+
+/**
+ * Absolute, token-carrying URL for a server-served asset (`/uploads/...`).
+ *
+ * Uploaded media sits behind the same token gate as the API, and a browser
+ * cannot put a header on an `<img src>` — so the token rides as a query
+ * parameter, which is the one channel available there.
+ */
+export function assetUrl(path: string): string {
+  const base = getApiBaseUrl();
+  const absolute = path.startsWith("http") ? path : `${base}${path.startsWith("/") ? "" : "/"}${path}`;
+  return withToken(absolute);
 }
 
 export const api = new ApiClient();

@@ -37,6 +37,23 @@ pub struct WebhookState {
     pub telegram_chat_id: Option<String>,
 }
 
+/// Most recent webhook events retained in memory.
+///
+/// The webhook port is public and unauthenticated by design (providers must be
+/// able to reach it), so an unbounded queue is a free denial-of-service: anyone
+/// who can reach the port can grow the process until it is killed.
+const MAX_RETAINED_EVENTS: usize = 500;
+
+/// Record an event, evicting the oldest once the cap is reached.
+async fn record_event(state: &WebhookState, event: WebhookEvent) {
+    let mut events = state.events.lock().await;
+    if events.len() >= MAX_RETAINED_EVENTS {
+        let overflow = events.len() + 1 - MAX_RETAINED_EVENTS;
+        events.drain(0..overflow);
+    }
+    events.push(event);
+}
+
 // ── Event types ─────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,7 +185,7 @@ async fn handle_google_calendar_webhook(
         received_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    state.events.lock().await.push(event);
+    record_event(&state, event).await;
 
     // Trigger an RSVP check for the affected resource
     let data_dir = state.data_dir.clone();
@@ -195,7 +212,7 @@ async fn handle_gmail_webhook(
         received_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    state.events.lock().await.push(event);
+    record_event(&state, event).await;
     StatusCode::OK
 }
 
@@ -240,7 +257,7 @@ async fn handle_github_webhook(
         received_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    state.events.lock().await.push(event);
+    record_event(&state, event).await;
 
     // Notify user if it's a PR review request
     if action == "review_requested" {
@@ -280,7 +297,7 @@ async fn handle_slack_events(
             payload: event_data,
             received_at: chrono::Utc::now().to_rfc3339(),
         };
-        state.events.lock().await.push(event);
+        record_event(&state, event).await;
     }
 
     (StatusCode::OK, Json(serde_json::json!({})))
@@ -492,5 +509,58 @@ mod tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["challenge"], "test-challenge-123");
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+
+    fn state() -> WebhookState {
+        WebhookState {
+            data_dir: std::env::temp_dir(),
+            events: Arc::new(Mutex::new(Vec::new())),
+            telegram_bot_token: None,
+            telegram_chat_id: None,
+        }
+    }
+
+    fn event(n: usize) -> WebhookEvent {
+        WebhookEvent {
+            source: "test".into(),
+            event_type: format!("e{n}"),
+            payload: serde_json::json!({}),
+            received_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_queue_is_capped_so_a_public_port_cannot_exhaust_memory() {
+        let state = state();
+        for n in 0..(MAX_RETAINED_EVENTS + 25) {
+            record_event(&state, event(n)).await;
+        }
+
+        let events = state.events.lock().await;
+        assert_eq!(events.len(), MAX_RETAINED_EVENTS, "queue must stop growing");
+        assert_eq!(
+            events.last().unwrap().event_type,
+            format!("e{}", MAX_RETAINED_EVENTS + 24),
+            "the newest event must survive"
+        );
+        assert_eq!(
+            events.first().unwrap().event_type,
+            format!("e{}", 25),
+            "the oldest events are the ones evicted"
+        );
+    }
+
+    #[tokio::test]
+    async fn events_below_the_cap_are_all_retained() {
+        let state = state();
+        for n in 0..10 {
+            record_event(&state, event(n)).await;
+        }
+        assert_eq!(state.events.lock().await.len(), 10);
     }
 }

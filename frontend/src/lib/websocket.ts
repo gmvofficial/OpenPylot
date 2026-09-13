@@ -1,4 +1,5 @@
 import { getWsBaseUrl } from "./utils";
+import { withToken } from "./token";
 import type { WSServerMessage, WSNotificationMessage } from "@/types";
 
 type MessageHandler = (msg: WSServerMessage) => void;
@@ -24,7 +25,10 @@ export class WebSocketClient {
     if (this.ws?.readyState === WebSocket.OPEN) return;
 
     try {
-      this.ws = new WebSocket(this.url);
+      // Browser WebSocket cannot send custom headers, so the token rides in the
+      // query string. Resolved here rather than in the constructor because the
+      // client is usually built before initToken() has run.
+      this.ws = new WebSocket(withToken(this.url));
 
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;

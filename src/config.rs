@@ -709,3 +709,131 @@ impl AppConfig {
         })
     }
 }
+
+// ── Config file writing ──────────────────────────────────────────────
+
+/// The TOML file settings should be written back to.
+///
+/// Mirrors [`AppConfig::load_toml`]'s search order so a write lands in the
+/// same file the next load will read. When nothing exists yet, falls back to
+/// `~/.pylot/config.toml` — the only candidate that is writable for an
+/// installed binary (the two relative paths only exist in a source checkout).
+pub fn writable_config_path() -> PathBuf {
+    let candidates = [
+        PathBuf::from("config/default.toml"),
+        PathBuf::from("default.toml"),
+        dirs::home_dir()
+            .unwrap_or_default()
+            .join(".pylot")
+            .join("config.toml"),
+    ];
+    for path in &candidates {
+        if path.exists() {
+            return path.clone();
+        }
+    }
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".pylot")
+        .join("config.toml")
+}
+
+/// Apply `section.field = value` updates to the config file, preserving
+/// comments and formatting.
+///
+/// Values are typed by inspecting the string: `true`/`false` become booleans,
+/// anything that parses as an integer or float becomes a number, everything
+/// else stays a string. Writing `"true"` as a string would make
+/// `mcp.enabled` silently fail to take effect, since the loader expects a bool.
+///
+/// Historically this lived in the API handlers, wrote only to a *relative*
+/// `config/default.toml`, and returned silently when that path did not exist —
+/// so every settings change made from the web UI of an installed binary was a
+/// no-op.
+pub fn set_config_values(updates: &[(&str, &str)]) -> Result<PathBuf> {
+    let path = writable_config_path();
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut doc = content
+        .parse::<toml_edit::DocumentMut>()
+        .with_context(|| format!("Failed to parse config: {}", path.display()))?;
+
+    for (key, value) in updates {
+        let (section, field) = key
+            .split_once('.')
+            .ok_or_else(|| anyhow::anyhow!("Config key must be 'section.field', got '{key}'"))?;
+
+        if doc.get(section).is_none() {
+            doc[section] = toml_edit::Item::Table(toml_edit::Table::new());
+        }
+        doc[section][field] = typed_toml_value(value);
+    }
+
+    // Write-then-rename so an interrupted write cannot truncate the config.
+    let tmp = path.with_extension("toml.tmp");
+    std::fs::write(&tmp, doc.to_string())
+        .with_context(|| format!("Failed to write {}", tmp.display()))?;
+    std::fs::rename(&tmp, &path)
+        .with_context(|| format!("Failed to replace {}", path.display()))?;
+
+    Ok(path)
+}
+
+/// Infer a TOML scalar from a command-line string.
+fn typed_toml_value(raw: &str) -> toml_edit::Item {
+    match raw {
+        "true" => toml_edit::value(true),
+        "false" => toml_edit::value(false),
+        _ => {
+            if let Ok(i) = raw.parse::<i64>() {
+                toml_edit::value(i)
+            } else if let Ok(f) = raw.parse::<f64>() {
+                toml_edit::value(f)
+            } else {
+                toml_edit::value(raw)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod config_write_tests {
+    use super::*;
+
+    fn parse(item: toml_edit::Item) -> String {
+        item.to_string().trim().to_string()
+    }
+
+    #[test]
+    fn booleans_are_written_as_booleans_not_strings() {
+        // `mcp.enabled = "true"` would fail to deserialize into a bool, leaving
+        // MCP silently off after the user turned it on.
+        assert_eq!(parse(typed_toml_value("true")), "true");
+        assert_eq!(parse(typed_toml_value("false")), "false");
+    }
+
+    #[test]
+    fn numbers_are_written_as_numbers() {
+        assert_eq!(parse(typed_toml_value("42")), "42");
+        assert_eq!(parse(typed_toml_value("0.7")), "0.7");
+    }
+
+    #[test]
+    fn everything_else_stays_a_quoted_string() {
+        assert_eq!(parse(typed_toml_value("gpt-4o")), "\"gpt-4o\"");
+        assert_eq!(parse(typed_toml_value("")), "\"\"");
+    }
+
+    #[test]
+    fn a_key_without_a_section_is_rejected() {
+        let err = set_config_values(&[("enabled", "true")]).unwrap_err();
+        assert!(
+            err.to_string().contains("section.field"),
+            "the error should say what a valid key looks like: {err}"
+        );
+    }
+}

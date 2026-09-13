@@ -114,8 +114,27 @@ enum Commands {
         /// Run in the foreground instead of as a daemon
         #[arg(long)]
         foreground: bool,
+        /// Interface to bind. Defaults to 127.0.0.1 (this machine only).
+        ///
+        /// Pass 0.0.0.0 to expose the UI to your network. The access token is
+        /// then the only thing standing between a stranger on the same Wi-Fi
+        /// and shell access on this machine — only do it on a network you trust.
+        #[arg(long, value_name = "ADDR")]
+        host: Option<String>,
+        /// Don't open a browser window on startup.
+        #[arg(long)]
+        no_open: bool,
         #[command(subcommand)]
         action: Option<ServeAction>,
+    },
+    /// Print this install's API access token
+    Token {
+        /// Print the full URL to open, token included
+        #[arg(long)]
+        url: bool,
+        /// Discard the current token and mint a new one
+        #[arg(long)]
+        rotate: bool,
     },
     /// Manage scheduled background jobs
     Jobs {
@@ -256,8 +275,45 @@ enum AgentsAction {
 enum McpAction {
     /// List configured MCP servers
     List,
-    /// List all MCP tools
+    /// List all MCP tools (connects to each enabled server)
     Tools,
+    /// Add or update an MCP server
+    Add {
+        /// Server name (used as the tool prefix: mcp_<name>_<tool>)
+        name: String,
+        /// Command to run for a stdio server, e.g. `dbpylot`
+        #[arg(long, conflicts_with = "url")]
+        command: Option<String>,
+        /// Arguments for the stdio command, e.g. `--args mcp`
+        #[arg(long, num_args = 0.., allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// URL for an HTTP/SSE server
+        #[arg(long, conflicts_with = "command")]
+        url: Option<String>,
+        /// Environment variables for a stdio server, as KEY=VALUE
+        #[arg(long = "env", value_name = "KEY=VALUE")]
+        env: Vec<String>,
+    },
+    /// Remove an MCP server
+    Remove {
+        /// Server name
+        name: String,
+    },
+    /// Enable a configured MCP server
+    Enable {
+        /// Server name
+        name: String,
+    },
+    /// Disable a configured MCP server without removing it
+    Disable {
+        /// Server name
+        name: String,
+    },
+    /// Connect to the configured servers and report what answered
+    Test {
+        /// Test only this server
+        name: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -341,11 +397,17 @@ async fn main() -> Result<()> {
         // Telegram bot mode
         Some(Commands::TelegramBot) => run_telegram_bot(&config).await,
         // Serve daemon with scheduler
-        Some(Commands::Serve { foreground, action }) => match action {
+        Some(Commands::Serve {
+            foreground,
+            host,
+            no_open,
+            action,
+        }) => match action {
             Some(ServeAction::Install) => scheduler::install_system_service(),
             Some(ServeAction::Uninstall) => scheduler::uninstall_system_service(),
-            None => run_serve(&config, foreground).await,
+            None => run_serve(&config, foreground, host.as_deref(), no_open).await,
         },
+        Some(Commands::Token { url, rotate }) => run_token_command(&config, url, rotate),
         // Job management
         Some(Commands::Jobs { action }) => run_jobs_command(&config, action).await,
         // Doctor diagnostics
@@ -361,9 +423,9 @@ async fn main() -> Result<()> {
         // Sub-agents
         Some(Commands::Agents { action }) => run_agents_command(action, &config).await,
         // MCP servers
-        Some(Commands::Mcp { action }) => run_mcp_command(action),
+        Some(Commands::Mcp { action }) => run_mcp_command(&config, action).await,
         // Social media
-        Some(Commands::Social { action }) => run_social_command(action),
+        Some(Commands::Social { action }) => run_social_command(&config, action),
         // Learning
         Some(Commands::Learn { action }) => run_learn_command(action, &config),
         // Shell completions
@@ -1037,9 +1099,52 @@ async fn init_smart_memory(config: &AppConfig) -> Option<Arc<SmartMemory>> {
     }
 }
 
+// ── Token command ────────────────────────────────────────────────────
+
+/// Print (or rotate) the API access token for this install.
+///
+/// Rotation deletes the stored token so the next load mints a fresh one; any
+/// browser tab or script holding the old value stops working immediately, which
+/// is the point — it's how you revoke access after exposing the server.
+fn run_token_command(config: &AppConfig, as_url: bool, rotate: bool) -> Result<()> {
+    let path = api::auth::token_path(&config.data_dir);
+
+    if rotate {
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("Failed to remove {}", path.display()))?;
+        }
+        println!("{} Previous token revoked.", "🔑".bright_blue());
+    }
+
+    let token = api::auth::ApiToken::load_or_create(&config.data_dir)
+        .context("Failed to load or create the API access token")?;
+
+    if as_url {
+        // Matches the default `pylot serve` binding.
+        println!("{}", api::ServeBinding::loopback(3001).browser_url(&token));
+    } else {
+        println!("{}", token.as_str());
+    }
+
+    if rotate {
+        println!(
+            "{} Restart 'pylot serve' for the new token to take effect.",
+            "ℹ".bright_blue()
+        );
+    }
+
+    Ok(())
+}
+
 // ── Serve command (daemon with scheduler) ────────────────────────────
 
-async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
+async fn run_serve(
+    config: &AppConfig,
+    foreground: bool,
+    host: Option<&str>,
+    no_open: bool,
+) -> Result<()> {
     println!(
         "{}",
         "╔══════════════════════════════════════════════════╗".bright_cyan()
@@ -1164,6 +1269,21 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
     // ── API + Frontend server ────────────────────────────────────────
     let api_port: u16 = 3001;
 
+    // Loopback unless the operator explicitly asked for a wider bind.
+    let binding = match host {
+        Some(h) => {
+            let ip: std::net::IpAddr = h.parse().with_context(|| {
+                format!("--host expects an IP address such as 127.0.0.1 or 0.0.0.0, got '{h}'")
+            })?;
+            api::ServeBinding { host: ip, port: api_port }
+        }
+        None => api::ServeBinding::loopback(api_port),
+    };
+
+    // Per-install token, minted on first run and reused thereafter.
+    let api_token = api::auth::ApiToken::load_or_create(&config.data_dir)
+        .context("Failed to load or create the API access token")?;
+
     // Build agent for the API server
     let smart_memory = init_smart_memory(config).await;
     let (llm, tools, skill_registry) = build_components(config, smart_memory.as_ref())?;
@@ -1215,11 +1335,48 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
         None
     };
 
-    // MCP registry
+    // MCP registry. Historically this built an empty registry and stopped —
+    // `mcp_config_path` was parsed and never read, so no MCP server was ever
+    // connected. Now the configured servers are actually brought up.
     let mcp_registry = if config.mcp_enabled {
-        let registry = Arc::new(tokio::sync::Mutex::new(crate::mcp::McpRegistry::new()));
+        let mut registry = crate::mcp::McpRegistry::new();
+        let path = crate::mcp::config::resolve_path(&config.data_dir, config.mcp_config_path.as_deref());
+
+        match crate::mcp::config::load(&path) {
+            Ok(file) => {
+                let servers = file.all_servers();
+                if servers.is_empty() {
+                    tracing::info!("MCP enabled but no servers configured in {}", path.display());
+                } else {
+                    let reports = registry.connect_all(&servers).await;
+                    let connected = reports.iter().filter(|r| r.is_connected()).count();
+                    tracing::info!(
+                        "MCP: {}/{} server(s) connected, {} tool(s) available",
+                        connected,
+                        servers.len(),
+                        registry.tool_count()
+                    );
+                    for report in reports.iter() {
+                        if let crate::mcp::registry::ConnectOutcome::Failed(err) = &report.outcome {
+                            eprintln!(
+                                "{} MCP server '{}' failed to connect: {}",
+                                "⚠".bright_yellow(),
+                                report.name.bright_white(),
+                                err
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                // A broken config file must be loud — silently running with zero
+                // servers is exactly the failure this replaced.
+                eprintln!("{} {e:#}", "⚠ MCP config error:".bright_yellow());
+            }
+        }
+
+        let registry = Arc::new(tokio::sync::Mutex::new(registry));
         agent.set_mcp_registry(registry.clone());
-        tracing::info!("MCP registry initialized");
         Some(registry)
     } else {
         None
@@ -1517,12 +1674,14 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
         notification_tx,
     };
 
+    let browser_url = binding.browser_url(&api_token);
+
     if let Some(ref dir) = frontend_dir {
         // Dev override: serving an on-disk build.
         println!(
-            "{} Frontend + API server on http://localhost:{}",
+            "{} Frontend + API server on {}",
             "✅".bright_green(),
-            api_port.to_string().bright_cyan(),
+            browser_url.bright_cyan(),
         );
         println!(
             "{} Frontend served from {}",
@@ -1532,16 +1691,16 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
     } else if frontend_assets::has_embedded_frontend() {
         // Default: UI is compiled into the binary.
         println!(
-            "{} Frontend + API server on http://localhost:{}",
+            "{} Frontend + API server on {}",
             "✅".bright_green(),
-            api_port.to_string().bright_cyan(),
+            browser_url.bright_cyan(),
         );
         println!("{} Frontend served from embedded build", "✅".bright_green());
     } else {
         println!(
-            "{} API server on http://localhost:{} (no frontend build found)",
+            "{} API server on http://{} (no frontend build found)",
             "✅".bright_green(),
-            api_port.to_string().bright_cyan(),
+            binding.socket_addr().to_string().bright_cyan(),
         );
         println!(
             "{} To build frontend: cd frontend && npm install && npm run build",
@@ -1549,7 +1708,37 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
         );
     }
 
+    if binding.is_public() {
+        println!(
+            "{} Bound to {} — anyone who can reach this machine and has the token \
+             can run shell commands through the agent.",
+            "⚠".bright_yellow(),
+            binding.host.to_string().bright_yellow(),
+        );
+    } else {
+        println!(
+            "{} Loopback only. Use {} to expose it to your network.",
+            "🔒".bright_green(),
+            "--host 0.0.0.0".bright_white(),
+        );
+    }
+    println!(
+        "{} Access token: {} ({})",
+        "🔑".bright_blue(),
+        api_token.as_str().dimmed(),
+        "pylot token".bright_white(),
+    );
+
     println!();
+
+    // Open the browser with the token already in the URL so the UI can store it
+    // and authenticate every later request without the user pasting anything.
+    let have_ui = frontend_dir.is_some() || frontend_assets::has_embedded_frontend();
+    if have_ui && !no_open {
+        if let Err(e) = open::that_detached(&browser_url) {
+            tracing::debug!("Could not open a browser automatically: {e}");
+        }
+    }
 
     // Start Telegram bot polling alongside other services (if configured)
     let telegram_handle: Option<tokio::task::JoinHandle<()>> = if config.telegram_enabled {
@@ -1575,7 +1764,7 @@ async fn run_serve(config: &AppConfig, foreground: bool) -> Result<()> {
     let result = tokio::select! {
         result = AgentScheduler::start(sched) => result,
         result = webhooks::start_webhook_server(webhook_port, webhook_state) => result,
-        result = api::start_api_server(api_port, api_state, frontend_dir) => result,
+        result = api::start_api_server(binding, api_state, frontend_dir, api_token) => result,
     };
 
     // Clean up Telegram bot task
@@ -1836,12 +2025,18 @@ fn run_config_command(action: ConfigAction) -> Result<()> {
             Ok(())
         }
         ConfigAction::Set { key, value } => {
+            let path = config::set_config_values(&[(&key, &value)])?;
             println!(
-                "{} Config set is currently managed through the init wizard.",
+                "{} {} = {}",
+                "✅".bright_green(),
+                key.bright_white(),
+                value.bright_cyan()
+            );
+            println!("  {}", path.display().to_string().dimmed());
+            println!(
+                "  {} Restart a running 'pylot serve' for this to take effect.",
                 "ℹ".bright_blue()
             );
-            println!("  Run: {} to update settings", "pylot init".bright_green());
-            println!("  Key: {}, Value: {}", key.dimmed(), value.dimmed());
             Ok(())
         }
     }
@@ -2096,16 +2291,240 @@ async fn run_agents_command(action: AgentsAction, config: &AppConfig) -> Result<
 
 // ── MCP command ──────────────────────────────────────────────────────
 
-fn run_mcp_command(action: McpAction) -> Result<()> {
+/// MCP server management.
+///
+/// Every branch here reads or writes the real config file and, where relevant,
+/// actually connects. The previous implementation printed a fixed
+/// "No MCP servers configured" no matter what was configured.
+async fn run_mcp_command(config: &AppConfig, action: McpAction) -> Result<()> {
+    use crate::mcp::config as mcp_config;
+    use crate::mcp::registry::ConnectOutcome;
+
+    let path = mcp_config::resolve_path(&config.data_dir, config.mcp_config_path.as_deref());
+
     match action {
         McpAction::List => {
+            let servers = mcp_config::load(&path)?.all_servers();
             println!("{} MCP Servers", "🔌".bright_blue());
-            println!("  No MCP servers configured.");
-            println!("  Add servers to your config file under [mcp.servers]");
+            println!("  {}\n", path.display().to_string().dimmed());
+
+            if servers.is_empty() {
+                println!("  No MCP servers configured.");
+                println!(
+                    "  Add one with: {}",
+                    "pylot mcp add dbpylot --command dbpylot --args mcp".bright_white()
+                );
+            } else {
+                for s in &servers {
+                    let state = if s.enabled {
+                        "enabled".bright_green()
+                    } else {
+                        "disabled".dimmed()
+                    };
+                    let target = match (&s.command, &s.url) {
+                        (Some(cmd), _) => {
+                            let args = s.args.as_deref().unwrap_or(&[]).join(" ");
+                            if args.is_empty() {
+                                cmd.clone()
+                            } else {
+                                format!("{cmd} {args}")
+                            }
+                        }
+                        (_, Some(url)) => url.clone(),
+                        _ => "(no command or url)".to_string(),
+                    };
+                    println!("  {} [{}]", s.name.bright_white(), state);
+                    println!("    {} {}", format!("{:?}", s.transport).to_lowercase().dimmed(), target.dimmed());
+                }
+            }
+
+            if !config.mcp_enabled {
+                println!(
+                    "\n  {} MCP is disabled in config. Enable it with: {}",
+                    "⚠".bright_yellow(),
+                    "pylot config set mcp.enabled true".bright_white()
+                );
+            }
         }
+
         McpAction::Tools => {
+            let servers = mcp_config::load(&path)?.all_servers();
+            let enabled: Vec<_> = servers.iter().filter(|s| s.enabled).cloned().collect();
+
             println!("{} MCP Tools", "🔧".bright_blue());
-            println!("  No MCP tools available. Connect a server first.");
+            if enabled.is_empty() {
+                println!("  No enabled MCP servers. Run 'pylot mcp list' to see what's configured.");
+                return Ok(());
+            }
+
+            let mut registry = crate::mcp::McpRegistry::new();
+            let reports = registry.connect_all(&enabled).await;
+
+            for report in &reports {
+                if let ConnectOutcome::Failed(err) = &report.outcome {
+                    println!("  {} {}: {}", "✗".bright_red(), report.name.bright_white(), err.dimmed());
+                }
+            }
+
+            let tools = registry.list_tools();
+            if tools.is_empty() {
+                println!("  No tools discovered.");
+            } else {
+                println!("  {} tool(s) from {} server(s)\n", tools.len(), registry.server_count());
+                for (prefixed, def) in tools {
+                    println!("  {}", prefixed.bright_white());
+                    println!("    {}", def.description.dimmed());
+                }
+            }
+            registry.close_all().await;
+        }
+
+        McpAction::Add {
+            name,
+            command,
+            args,
+            url,
+            env,
+        } => {
+            if command.is_none() && url.is_none() {
+                anyhow::bail!(
+                    "Provide either --command (stdio) or --url (http/sse).\n\
+                     For OpenDbPylot: pylot mcp add dbpylot --command dbpylot --args mcp"
+                );
+            }
+
+            let mut env_map = std::collections::HashMap::new();
+            for pair in &env {
+                let (k, v) = pair.split_once('=').ok_or_else(|| {
+                    anyhow::anyhow!("--env expects KEY=VALUE, got '{pair}'")
+                })?;
+                env_map.insert(k.to_string(), v.to_string());
+            }
+
+            let server = crate::mcp::McpServerConfig {
+                name: name.clone(),
+                transport: if url.is_some() {
+                    crate::mcp::McpTransportType::Http
+                } else {
+                    crate::mcp::McpTransportType::Stdio
+                },
+                command,
+                args: (!args.is_empty()).then_some(args),
+                url,
+                headers: None,
+                env: (!env_map.is_empty()).then_some(env_map),
+                enabled: true,
+            };
+
+            let replaced = mcp_config::upsert(&path, server)?;
+            println!(
+                "{} MCP server '{}' {}",
+                "✅".bright_green(),
+                name.bright_white(),
+                if replaced { "updated" } else { "added" }
+            );
+            println!("  {}", path.display().to_string().dimmed());
+
+            // Adding a server means you want it used. Leaving `mcp.enabled`
+            // false would make this a dead end where everything looks right and
+            // no tool ever appears.
+            if !config.mcp_enabled {
+                match config::set_config_values(&[("mcp.enabled", "true")]) {
+                    Ok(_) => println!("  {} MCP enabled in config", "✅".bright_green()),
+                    Err(e) => println!(
+                        "  {} Could not enable MCP automatically: {e}\n    Run: {}",
+                        "⚠".bright_yellow(),
+                        "pylot config set mcp.enabled true".bright_white()
+                    ),
+                }
+            }
+
+            println!(
+                "  Verify it with: {}",
+                format!("pylot mcp test {name}").bright_white()
+            );
+        }
+
+        McpAction::Remove { name } => {
+            if mcp_config::remove(&path, &name)? {
+                println!("{} MCP server '{}' removed", "✅".bright_green(), name.bright_white());
+            } else {
+                println!("{} No MCP server named '{}'", "⚠".bright_yellow(), name.bright_white());
+            }
+        }
+
+        McpAction::Enable { name } => {
+            if mcp_config::set_enabled(&path, &name, true)? {
+                println!("{} MCP server '{}' enabled", "✅".bright_green(), name.bright_white());
+            } else {
+                println!("{} No MCP server named '{}'", "⚠".bright_yellow(), name.bright_white());
+            }
+        }
+
+        McpAction::Disable { name } => {
+            if mcp_config::set_enabled(&path, &name, false)? {
+                println!("{} MCP server '{}' disabled", "✅".bright_green(), name.bright_white());
+            } else {
+                println!("{} No MCP server named '{}'", "⚠".bright_yellow(), name.bright_white());
+            }
+        }
+
+        McpAction::Test { name } => {
+            let all = mcp_config::load(&path)?.all_servers();
+            let targets: Vec<_> = match &name {
+                Some(n) => all.iter().filter(|s| &s.name == n).cloned().collect(),
+                None => all.clone(),
+            };
+
+            if targets.is_empty() {
+                match name {
+                    Some(n) => println!("{} No MCP server named '{}'", "⚠".bright_yellow(), n.bright_white()),
+                    None => println!("{} No MCP servers configured.", "⚠".bright_yellow()),
+                }
+                return Ok(());
+            }
+
+            // Testing a named server ignores its enabled flag — you test a
+            // disabled server precisely to decide whether to enable it.
+            let targets: Vec<_> = targets
+                .into_iter()
+                .map(|mut s| {
+                    if name.is_some() {
+                        s.enabled = true;
+                    }
+                    s
+                })
+                .collect();
+
+            println!("{} Testing MCP servers\n", "🔌".bright_blue());
+            let mut registry = crate::mcp::McpRegistry::new();
+            let reports = registry.connect_all(&targets).await;
+
+            let mut failures = 0;
+            for report in &reports {
+                match &report.outcome {
+                    ConnectOutcome::Connected { tools } => println!(
+                        "  {} {} — {} tool(s)",
+                        "✓".bright_green(),
+                        report.name.bright_white(),
+                        tools
+                    ),
+                    ConnectOutcome::Disabled => println!(
+                        "  {} {} — disabled",
+                        "–".dimmed(),
+                        report.name.bright_white()
+                    ),
+                    ConnectOutcome::Failed(err) => {
+                        failures += 1;
+                        println!("  {} {} — {}", "✗".bright_red(), report.name.bright_white(), err);
+                    }
+                }
+            }
+            registry.close_all().await;
+
+            if failures > 0 {
+                anyhow::bail!("{failures} MCP server(s) failed to connect");
+            }
         }
     }
     Ok(())
@@ -2113,23 +2532,92 @@ fn run_mcp_command(action: McpAction) -> Result<()> {
 
 // ── Social command ───────────────────────────────────────────────────
 
-fn run_social_command(action: SocialAction) -> Result<()> {
+/// Social account / post / campaign listings.
+///
+/// These read the same SQLite store the web UI writes to. The previous
+/// implementation printed "No accounts connected" / "No posts scheduled" /
+/// "No campaigns created" unconditionally, so the CLI reported an empty state
+/// even when the store was full.
+fn run_social_command(config: &AppConfig, action: SocialAction) -> Result<()> {
+    let db_path = config.data_dir.join("social.db");
+    let manager = match crate::social::SocialManager::with_db(&db_path) {
+        Ok(m) => m,
+        Err(e) => {
+            anyhow::bail!("Could not open the social store at {}: {e}", db_path.display());
+        }
+    };
+
     match action {
         SocialAction::Accounts => {
             println!("{} Social Media Accounts", "📱".bright_blue());
-            println!("  No accounts connected.");
-            println!("  Supported: Twitter, LinkedIn, Instagram, Facebook, Bluesky");
+            let connected = manager.connected_platforms();
+            if connected.is_empty() {
+                println!("  No accounts connected.");
+                println!(
+                    "  Connect one with: {}",
+                    "pylot add twitter".bright_white()
+                );
+            } else {
+                for platform in connected {
+                    println!("  {} {}", "✓".bright_green(), format!("{platform:?}").bright_white());
+                }
+            }
         }
         SocialAction::Posts => {
-            println!("{} Scheduled Posts", "📝".bright_blue());
-            println!("  No posts scheduled.");
+            println!("{} Posts", "📝".bright_blue());
+            let posts = manager.list_posts();
+            if posts.is_empty() {
+                println!("  No posts yet.");
+            } else {
+                for post in posts {
+                    let when = post
+                        .scheduled_at
+                        .map(|t| t.format("%Y-%m-%d %H:%M UTC").to_string())
+                        .unwrap_or_else(|| "unscheduled".to_string());
+                    println!(
+                        "  {} {} [{}]",
+                        format!("{:?}", post.platform).bright_white(),
+                        when.dimmed(),
+                        format!("{:?}", post.status).to_lowercase()
+                    );
+                    println!("    {}", truncate_line(&post.content, 72).dimmed());
+                }
+                println!("\n  {} post(s)", posts.len());
+            }
         }
         SocialAction::Campaigns => {
             println!("{} Campaigns", "📢".bright_blue());
-            println!("  No campaigns created.");
+            let campaigns = manager.list_campaigns();
+            if campaigns.is_empty() {
+                println!("  No campaigns created.");
+            } else {
+                for campaign in campaigns {
+                    println!(
+                        "  {} [{}] — {} post(s)",
+                        campaign.name.bright_white(),
+                        format!("{:?}", campaign.status).to_lowercase(),
+                        campaign.posts.len()
+                    );
+                    if !campaign.description.is_empty() {
+                        println!("    {}", truncate_line(&campaign.description, 72).dimmed());
+                    }
+                }
+                println!("\n  {} campaign(s)", campaigns.len());
+            }
         }
     }
     Ok(())
+}
+
+/// Collapse a body of text to a single line of at most `max` characters.
+fn truncate_line(text: &str, max: usize) -> String {
+    let single = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Count by chars, not bytes — slicing a multi-byte char would panic.
+    if single.chars().count() <= max {
+        return single;
+    }
+    let kept: String = single.chars().take(max.saturating_sub(1)).collect();
+    format!("{kept}…")
 }
 
 // ── Learn command ────────────────────────────────────────────────────

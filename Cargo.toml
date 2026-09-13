@@ -168,3 +168,7 @@ path = "tests/rust/integration/skills_test.rs"
 tempfile = "3"
 tokio-test = "0.4"
 tower = { version = "0.5", features = ["util"] }
+
+[[test]]
+name = "api_auth_test"
+path = "tests/rust/integration/api_auth_test.rs"
