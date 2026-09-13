@@ -76,6 +76,9 @@ jobs:
       # compile if the directory is absent. A tracked `.gitkeep` normally keeps
       # it there; this makes the build independent of that file surviving.
       - name: Ensure the embed directory exists
+        # bash explicitly: the Windows runner defaults to PowerShell, where
+        # `mkdir -p` and `touch` do not exist.
+        shell: bash
         run: mkdir -p frontend/out && touch frontend/out/.gitkeep
 
       - name: Build native addon

@@ -48,6 +48,11 @@ jobs:
       # compile if the directory is absent. A tracked `.gitkeep` normally keeps
       # it there; this makes the build independent of that file surviving.
       - name: Ensure the embed directory exists
+        # Override the job's `working-directory: python` default — the embed
+        # folder is at the repository root, not under python/. And bash
+        # explicitly, since the Windows runner defaults to PowerShell.
+        working-directory: ${{ github.workspace }}
+        shell: bash
         run: mkdir -p frontend/out && touch frontend/out/.gitkeep
 
       - name: Build wheels
@@ -78,6 +83,11 @@ jobs:
       # compile if the directory is absent. A tracked `.gitkeep` normally keeps
       # it there; this makes the build independent of that file surviving.
       - name: Ensure the embed directory exists
+        # Override the job's `working-directory: python` default — the embed
+        # folder is at the repository root, not under python/. And bash
+        # explicitly, since the Windows runner defaults to PowerShell.
+        working-directory: ${{ github.workspace }}
+        shell: bash
         run: mkdir -p frontend/out && touch frontend/out/.gitkeep
 
       - name: Build wheels
@@ -103,6 +113,11 @@ jobs:
       # compile if the directory is absent. A tracked `.gitkeep` normally keeps
       # it there; this makes the build independent of that file surviving.
       - name: Ensure the embed directory exists
+        # Override the job's `working-directory: python` default — the embed
+        # folder is at the repository root, not under python/. And bash
+        # explicitly, since the Windows runner defaults to PowerShell.
+        working-directory: ${{ github.workspace }}
+        shell: bash
         run: mkdir -p frontend/out && touch frontend/out/.gitkeep
 
       - name: Build wheels
