@@ -1,6 +1,6 @@
 {
   "name": "openpylot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenPylot \u2014 A Rust-powered personal AI assistant (Node.js bindings)",
   "main": "index.js",
   "types": "index.d.ts",
@@ -51,11 +51,11 @@
     "@napi-rs/cli": "^2.18.0"
   },
   "optionalDependencies": {
-    "openpylot-win32-x64-msvc": "0.1.0",
-    "openpylot-darwin-x64": "0.1.0",
-    "openpylot-linux-x64-gnu": "0.1.0",
-    "openpylot-darwin-arm64": "0.1.0",
-    "openpylot-linux-arm64-gnu": "0.1.0"
+    "openpylot-win32-x64-msvc": "0.2.0",
+    "openpylot-darwin-x64": "0.2.0",
+    "openpylot-linux-x64-gnu": "0.2.0",
+    "openpylot-darwin-arm64": "0.2.0",
+    "openpylot-linux-arm64-gnu": "0.2.0"
   },
   "exports": {
     ".": {

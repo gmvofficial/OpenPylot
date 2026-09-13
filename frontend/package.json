@@ -1,8 +1,8 @@
 {
   "name": "openpylot-frontend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "OpenPylot — Web Frontend & Chat Interface",
+  "description": "OpenPylot \u2014 Web Frontend & Chat Interface",
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
