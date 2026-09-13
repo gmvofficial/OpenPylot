@@ -25,6 +25,7 @@ mod streaming;
 mod sub_agents;
 mod telegram_bot;
 mod terminal;
+mod tui;
 mod tools;
 mod traits;
 mod usage;
@@ -646,7 +647,7 @@ async fn run_interactive(config: &AppConfig) -> Result<()> {
     let system_prompt = build_system_prompt(config);
 
     let memory_provider = smart_memory.map(|sm| sm as Arc<dyn crate::traits::MemoryProvider>);
-    let agent = Agent::new(
+    let mut agent = Agent::new(
         llm,
         tools,
         skill_registry,
@@ -657,8 +658,56 @@ async fn run_interactive(config: &AppConfig) -> Result<()> {
         memory_provider,
     )?;
 
-    let mut terminal = Terminal::new(agent, config);
-    terminal.run(config).await
+    // Connect MCP servers so the terminal gets the same tools the web UI does.
+    // Previously only `serve` touched MCP at all, which meant a companion like
+    // OpenDbPylot was reachable from the browser but not from the CLI.
+    let mcp_count = connect_mcp_servers(config, &mut agent).await;
+
+    if std::env::var("PYLOT_CLASSIC_TUI").is_ok() {
+        // Escape hatch: the pre-ratatui line-based REPL, in case the new one
+        // misbehaves on an unusual terminal.
+        let mut terminal = Terminal::new(agent, config);
+        return terminal.run(config).await;
+    }
+
+    let mut app = tui::App::new(agent, config);
+    app.set_mcp_servers(mcp_count);
+    app.run().await
+}
+
+/// Load `mcp-servers.json` and connect every enabled server, returning how many
+/// answered. Failures are reported but never fatal.
+async fn connect_mcp_servers(config: &AppConfig, agent: &mut Agent) -> usize {
+    if !config.mcp_enabled {
+        return 0;
+    }
+    let path = crate::mcp::config::resolve_path(&config.data_dir, config.mcp_config_path.as_deref());
+    let servers = match crate::mcp::config::load(&path) {
+        Ok(file) => file.all_servers(),
+        Err(e) => {
+            eprintln!("{} {e:#}", "⚠ MCP config error:".bright_yellow());
+            return 0;
+        }
+    };
+    if servers.is_empty() {
+        return 0;
+    }
+
+    let mut registry = crate::mcp::McpRegistry::new();
+    let reports = registry.connect_all(&servers).await;
+    for report in &reports {
+        if let crate::mcp::registry::ConnectOutcome::Failed(err) = &report.outcome {
+            eprintln!(
+                "{} MCP server '{}' failed to connect: {}",
+                "⚠".bright_yellow(),
+                report.name.bright_white(),
+                err
+            );
+        }
+    }
+    let connected = reports.iter().filter(|r| r.is_connected()).count();
+    agent.set_mcp_registry(Arc::new(tokio::sync::Mutex::new(registry)));
+    connected
 }
 
 // ── List tools ───────────────────────────────────────────────────────

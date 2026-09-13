@@ -18,6 +18,7 @@ pub mod sessions;
 pub mod smart_memory;
 pub mod skills;
 pub mod tools;
+pub mod tui;
 pub mod traits;
 pub mod usage;
 pub mod webhooks;
