@@ -72,6 +72,12 @@ jobs:
         working-directory: node
         run: npm install
 
+      # The parent crate embeds `frontend/out` with rust-embed, which fails to
+      # compile if the directory is absent. A tracked `.gitkeep` normally keeps
+      # it there; this makes the build independent of that file surviving.
+      - name: Ensure the embed directory exists
+        run: mkdir -p frontend/out && touch frontend/out/.gitkeep
+
       - name: Build native addon
         working-directory: node
         run: npx napi build --platform --release --target ${{ matrix.target }}

@@ -44,6 +44,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+      # The parent crate embeds `frontend/out` with rust-embed, which fails to
+      # compile if the directory is absent. A tracked `.gitkeep` normally keeps
+      # it there; this makes the build independent of that file surviving.
+      - name: Ensure the embed directory exists
+        run: mkdir -p frontend/out && touch frontend/out/.gitkeep
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -68,6 +74,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+      # The parent crate embeds `frontend/out` with rust-embed, which fails to
+      # compile if the directory is absent. A tracked `.gitkeep` normally keeps
+      # it there; this makes the build independent of that file surviving.
+      - name: Ensure the embed directory exists
+        run: mkdir -p frontend/out && touch frontend/out/.gitkeep
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -87,6 +99,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+      # The parent crate embeds `frontend/out` with rust-embed, which fails to
+      # compile if the directory is absent. A tracked `.gitkeep` normally keeps
+      # it there; this makes the build independent of that file surviving.
+      - name: Ensure the embed directory exists
+        run: mkdir -p frontend/out && touch frontend/out/.gitkeep
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:

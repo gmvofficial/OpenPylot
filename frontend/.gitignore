@@ -1,5 +1,10 @@
 .next/
 out/
+# …but keep the directory itself: the crate embeds it with rust-embed
+# (#[folder = "frontend/out"]), which fails to compile if it is absent. That
+# breaks every build of the node and python bindings, which depend on the
+# parent crate by path.
+!out/.gitkeep
 node_modules/
 *.tsbuildinfo
 next-env.d.ts
